@@ -8,16 +8,31 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
 
     const handleConnect = async () => {
         try {
-            // TypeScript doesn't know about this API yet, so we use `as any`
-            const handle = await (window as any).showDirectoryPicker();
+            // In sandboxed environments (like cross-origin iframes), the standard `showDirectoryPicker`
+            // can be blocked. We check for a platform-specific implementation first.
+            const picker = (window as any).aistudio?.showDirectoryPicker || (window as any).showDirectoryPicker;
+
+            if (!picker) {
+                throw new Error("Funkcja wyboru folderu nie jest obsługiwana w tej przeglądarce lub środowisku.");
+            }
+            
+            // Explicitly request read-write access.
+            const handle = await picker({
+                mode: 'readwrite'
+            });
             onDirectoryConnect(handle);
         } catch (error) {
-            // Handle the case where the user cancels the picker
+            // Handle the case where the user cancels the picker or permission is denied
             if ((error as Error).name === 'AbortError') {
                 console.log('User cancelled the directory picker.');
-            } else {
+            } else if ((error as Error).name === 'SecurityError') {
+                 console.error('SecurityError connecting to directory:', error);
+                 alert('Dostęp do folderu został zablokowany ze względów bezpieczeństwa. Upewnij się, że strona ma odpowiednie uprawnienia (HTTPS) i nie jest blokowana przez rozszerzenia przeglądarki.');
+            }
+            else {
                 console.error('Error connecting to directory:', error);
-                alert('Nie udało się otworzyć folderu. Upewnij się, że przyznano odpowiednie uprawnienia w przeglądarce.');
+                const errorMessage = error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
+                alert(`Nie udało się otworzyć folderu: ${errorMessage}. Upewnij się, że przyznano odpowiednie uprawnienia w przeglądarce.`);
             }
         }
     };
