@@ -23,9 +23,7 @@ const TagColumn: React.FC<{ title: string; tags: ID3Tags }> = ({ title, tags }) 
       <TagDetailLine label="Album" value={tags.album} />
       <TagDetailLine label="Rok" value={tags.year} />
       <TagDetailLine label="Gatunek" value={tags.genre} />
-      <TagDetailLine label="Nastrój" value={tags.mood} />
-      <TagDetailLine label="Bitrate" value={tags.bitrate ? `${tags.bitrate} kbps` : undefined} />
-      <TagDetailLine label="Sample Rate" value={tags.sampleRate ? `${tags.sampleRate} Hz` : undefined} />
+      <TagDetailLine label="Kompozytor" value={tags.composer} />
       <TagDetailLine label="Komentarz" value={tags.comments} />
     </div>
   </div>
@@ -53,15 +51,17 @@ const TagPreviewTooltip: React.FC<TagPreviewTooltipProps> = ({ originalTags, fet
              <div className="space-y-1 overflow-hidden flex-grow">
                 <TagDetailLine label="Tytuł" value={fetchedTags.title} />
                 <TagDetailLine label="Artysta" value={fetchedTags.artist} />
+                 <TagDetailLine label="Art. albumu" value={fetchedTags.albumArtist} />
                 <TagDetailLine label="Album" value={fetchedTags.album} />
                 <TagDetailLine label="Rok" value={fetchedTags.year} />
                 <TagDetailLine label="Gatunek" value={fetchedTags.genre} />
+                <TagDetailLine label="Nr utworu" value={fetchedTags.trackNumber} />
+                <TagDetailLine label="Nr dysku" value={fetchedTags.discNumber} />
              </div>
           </div>
            <div className="mt-2 space-y-1">
-             <TagDetailLine label="Nastrój" value={fetchedTags.mood} />
-             <TagDetailLine label="Bitrate" value={fetchedTags.bitrate ? `${fetchedTags.bitrate} kbps` : undefined} />
-             <TagDetailLine label="Sample Rate" value={fetchedTags.sampleRate ? `${fetchedTags.sampleRate} Hz` : undefined} />
+             <TagDetailLine label="Kompozytor" value={fetchedTags.composer} />
+             <TagDetailLine label="Prawa aut." value={fetchedTags.copyright} />
              <TagDetailLine label="Komentarz" value={fetchedTags.comments} />
            </div>
         </div>

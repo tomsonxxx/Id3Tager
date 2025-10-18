@@ -10,18 +10,40 @@ export const generatePath = (
   
   // Get the most complete set of tags available
   const effectiveTags = { ...tags };
+  
+  const trackNumber = effectiveTags.trackNumber 
+    ? String(effectiveTags.trackNumber).split('/')[0].trim().padStart(2, '0') 
+    : '00';
+
+  const discNumber = effectiveTags.discNumber
+    ? String(effectiveTags.discNumber).split('/')[0].trim()
+    : '1';
 
   let newName = pattern
     .replace(/\[artist\]/gi, effectiveTags.artist || 'Unknown Artist')
+    .replace(/\[albumArtist\]/gi, effectiveTags.albumArtist || effectiveTags.artist || 'Unknown Artist')
     .replace(/\[album\]/gi, effectiveTags.album || 'Unknown Album')
     .replace(/\[title\]/gi, effectiveTags.title || 'Unknown Title')
     .replace(/\[year\]/gi, effectiveTags.year || '0000')
-    .replace(/\[genre\]/gi, effectiveTags.genre || 'Unknown Genre');
+    .replace(/\[genre\]/gi, effectiveTags.genre || 'Unknown Genre')
+    .replace(/\[trackNumber\]/gi, trackNumber)
+    .replace(/\[discNumber\]/gi, discNumber)
+    .replace(/\[composer\]/gi, effectiveTags.composer || 'Unknown Composer');
 
-  // Sanitize filename to remove invalid characters for filenames and paths
-  // This regex handles both Windows and Unix-like systems.
-  newName = newName.replace(/[\\?%*:|"<>]/g, '-').replace(/^\.+/, '');
+  // Sanitize each path component individually to handle subdirectories correctly.
+  const sanitizedParts = newName.split('/').map(part => {
+    // Trim leading/trailing whitespace
+    let sanitizedPart = part.trim();
+    // Replace multiple spaces with a single space
+    sanitizedPart = sanitizedPart.replace(/\s+/g, ' ');
+    // Replace invalid characters for filenames/paths.
+    // This regex handles both Windows and Unix-like systems.
+    sanitizedPart = sanitizedPart.replace(/[\\?%*:|"<>]/g, '-');
+    // Remove leading dots that might hide files on Unix-like systems.
+    sanitizedPart = sanitizedPart.replace(/^\.+/, '');
+    // A part should not be empty, if it is (e.g. from "//"), replace with an underscore.
+    return sanitizedPart || '_';
+  });
   
-  // Also sanitize path parts
-  return newName.split('/').map(part => part.replace(/[\\?%*:|"<>]/g, '-').trim()).join('/') + `.${extension}`;
+  return sanitizedParts.join('/') + `.${extension}`;
 };

@@ -21,7 +21,14 @@ export const readID3Tags = (file: File): Promise<ID3Tags> => {
         if (tag.tags.album) tags.album = tag.tags.album;
         if (tag.tags.year) tags.year = tag.tags.year;
         if (tag.tags.genre) tags.genre = tag.tags.genre;
-        
+        if (tag.tags.track) tags.trackNumber = tag.tags.track;
+        if (tag.tags.TPE2) tags.albumArtist = tag.tags.TPE2.data;
+        if (tag.tags.TCOM) tags.composer = tag.tags.TCOM.data;
+        if (tag.tags.TCOP) tags.copyright = tag.tags.TCOP.data;
+        if (tag.tags.TENC) tags.encodedBy = tag.tags.TENC.data;
+        if (tag.tags.TOPE) tags.originalArtist = tag.tags.TOPE.data;
+        if (tag.tags.TPOS) tags.discNumber = tag.tags.TPOS.data;
+
         // Custom frames might not be parsed by default, but we check common ones
         if (tag.tags.TMOO) tags.mood = tag.tags.TMOO.data;
         if (tag.tags.COMM) tags.comments = tag.tags.COMM.data.text;
@@ -85,8 +92,15 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
     if (tags.album) writer.setFrame('TALB', tags.album);
     if (tags.year) writer.setFrame('TYER', tags.year);
     if (tags.genre) writer.setFrame('TCON', [tags.genre]);
+    if (tags.trackNumber) writer.setFrame('TRCK', tags.trackNumber);
+    if (tags.albumArtist) writer.setFrame('TPE2', [tags.albumArtist]);
     if (tags.mood) writer.setFrame('TMOO', tags.mood);
     if (tags.comments) writer.setFrame('COMM', { description: 'Comment', text: tags.comments });
+    if (tags.composer) writer.setFrame('TCOM', [tags.composer]);
+    if (tags.copyright) writer.setFrame('TCOP', tags.copyright);
+    if (tags.encodedBy) writer.setFrame('TENC', tags.encodedBy);
+    if (tags.originalArtist) writer.setFrame('TOPE', [tags.originalArtist]);
+    if (tags.discNumber) writer.setFrame('TPOS', tags.discNumber);
     
     // Handle album cover
     if (tags.albumCoverUrl) {
@@ -121,8 +135,8 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
 
 /**
  * Saves a file directly to the user's filesystem using the File System Access API.
- * Handles writing tags for MP3s and renaming for all file types.
- * @param dirHandle The handle to the directory where the file resides.
+ * Handles writing tags for MP3s and renaming for all file types, including creating subdirectories.
+ * @param dirHandle The handle to the root directory for saving.
  * @param audioFile The file object from the application state.
  * @returns An object indicating success and the updated file object for state management.
  */
@@ -132,53 +146,91 @@ export const saveFileDirectly = async (
 ): Promise<{ success: boolean; updatedFile?: AudioFile; errorMessage?: string }> => {
   try {
     const isMp3 = audioFile.file.type === 'audio/mpeg' || audioFile.file.type === 'audio/mp3';
-    const originalHandle = audioFile.handle;
-    if (!originalHandle) {
-      throw new Error("Brak referencji do pliku (file handle). Nie można zapisać.");
+    
+    if (!audioFile.handle) {
+      throw new Error("Brak referencji do pliku (file handle). Nie można zapisać, ponieważ plik nie pochodzi z trybu bezpośredniego dostępu.");
     }
     
     let blobToSave: Blob;
     let performedTagWrite = false;
 
-    // Only attempt to write tags for MP3 files
+    // Only attempt to write ID3 tags for MP3 files that have new tags.
     if (isMp3 && audioFile.fetchedTags) {
-      blobToSave = await applyID3Tags(audioFile.file, audioFile.fetchedTags);
-      performedTagWrite = true;
+      try {
+        blobToSave = await applyID3Tags(audioFile.file, audioFile.fetchedTags);
+        performedTagWrite = true;
+      } catch (tagError) {
+        console.warn(`Nie udało się zapisać tagów dla ${audioFile.file.name}, plik zostanie tylko przemianowany. Błąd:`, tagError);
+        blobToSave = audioFile.file;
+      }
     } else {
-      blobToSave = audioFile.file; // Use original content for non-MP3s or if no tags
+      blobToSave = audioFile.file;
     }
 
-    const needsRename = audioFile.newName && audioFile.newName !== audioFile.file.name;
+    const needsRename = audioFile.newName && audioFile.newName !== audioFile.webkitRelativePath;
 
-    // If no action is needed (no rename and not an MP3 to write tags to), we can skip.
     if (!needsRename && !performedTagWrite) {
       return { success: true, updatedFile: audioFile };
     }
 
+    // SCENARIO 1: RENAME / MOVE
     if (needsRename) {
-      // Create new file, write content, then remove the old one.
-      const newHandle = await dirHandle.getFileHandle(audioFile.newName!, { create: true });
+      const newPath = audioFile.newName!;
+      const pathParts = newPath.split('/').filter(p => p && p !== '.');
+      const filename = pathParts.pop();
+
+      if (!filename) {
+          throw new Error(`Wygenerowana nazwa pliku jest nieprawidłowa: ${newPath}`);
+      }
+
+      let currentDirHandle = dirHandle;
+      for (const part of pathParts) {
+        currentDirHandle = await currentDirHandle.getDirectoryHandle(part, { create: true });
+      }
+      
+      const newHandle = await currentDirHandle.getFileHandle(filename, { create: true });
       const writable = await newHandle.createWritable();
       await writable.write(blobToSave);
       await writable.close();
       
-      // Important: only remove the old entry if the name actually changed.
-      if (originalHandle.name !== newHandle.name) {
-          await dirHandle.removeEntry(originalHandle.name);
+      // After successfully creating the new file, remove the old one from its original path.
+      try {
+        const originalPath = audioFile.webkitRelativePath;
+        if (originalPath && originalPath !== newPath) {
+             const originalPathParts = originalPath.split('/').filter(p => p);
+             const originalFilename = originalPathParts.pop();
+             
+             if (originalFilename) {
+                let parentDirHandle = dirHandle;
+                for (const part of originalPathParts) {
+                    parentDirHandle = await parentDirHandle.getDirectoryHandle(part, { create: false });
+                }
+                await parentDirHandle.removeEntry(originalFilename);
+             }
+        }
+      } catch(removeError: any) {
+         console.warn(`Wystąpił błąd podczas usuwania oryginalnego pliku '${audioFile.webkitRelativePath}':`, removeError);
       }
 
       const newFile = await newHandle.getFile();
       return { 
         success: true, 
-        updatedFile: { ...audioFile, file: newFile, handle: newHandle, newName: newFile.name }
+        updatedFile: { 
+            ...audioFile, 
+            file: newFile, 
+            handle: newHandle, 
+            newName: newPath,
+            webkitRelativePath: newPath // Update the path for future operations
+        }
       };
+    
+    // SCENARIO 2: OVERWRITE IN PLACE (only tags changed, no rename)
     } else {
-      // Overwrite the existing file.
-      const writable = await originalHandle.createWritable();
+      const writable = await audioFile.handle.createWritable({ keepExistingData: false });
       await writable.write(blobToSave);
       await writable.close();
       
-      const updatedCoreFile = await originalHandle.getFile();
+      const updatedCoreFile = await audioFile.handle.getFile();
       return { 
         success: true, 
         updatedFile: { ...audioFile, file: updatedCoreFile }

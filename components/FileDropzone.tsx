@@ -86,7 +86,7 @@ const FileDropzone: React.FC<FileDropzoneProps> = ({ onFilesSelected, onUrlSubmi
         id="file-input"
         className="absolute w-full h-full top-0 left-0 opacity-0 cursor-pointer"
         multiple
-        accept="audio/mpeg, audio/mp3, audio/flac, audio/wav, audio/ogg, audio/m4a"
+        accept="audio/mpeg, audio/mp3, audio/flac, audio/wav, audio/ogg, audio/m4a, audio/x-m4a, audio/aac, audio/x-ms-wma"
         onChange={handleFileChange}
         disabled={isProcessing}
       />
@@ -114,7 +114,7 @@ const FileDropzone: React.FC<FileDropzoneProps> = ({ onFilesSelected, onUrlSubmi
         >
             lub Wybierz cały folder
         </button>
-      <p className="mt-4 text-xs text-slate-500 dark:text-slate-600">Obsługiwane formaty: MP3, FLAC, WAV, OGG, M4A</p>
+      <p className="mt-4 text-xs text-slate-500 dark:text-slate-600">Obsługiwane formaty: MP3, FLAC, WAV, OGG, M4A, AAC, WMA</p>
 
         <div className="relative flex items-center w-full my-6">
             <div className="flex-grow border-t border-slate-300 dark:border-slate-700"></div>

@@ -31,7 +31,7 @@ declare const JSZip: any;
 declare const saveAs: any;
 
 const MAX_CONCURRENT_REQUESTS = 3;
-const SUPPORTED_FORMATS = ['audio/mpeg', 'audio/mp3', 'audio/flac', 'audio/wav', 'audio/ogg', 'audio/m4a'];
+const SUPPORTED_FORMATS = ['audio/mpeg', 'audio/mp3', 'audio/flac', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/x-ms-wma'];
 
 
 type ModalState = 
@@ -43,6 +43,25 @@ type ModalState =
   | { type: 'batch-edit' }
   | { type: 'post-download'; count: number }
   | { type: 'zoom-cover', imageUrl: string };
+
+// Helper function to recursively get all files from a directory handle
+async function* getFilesRecursively(entry: any): AsyncGenerator<{ file: File, handle: any, path: string }> {
+    if (entry.kind === 'file') {
+        const file = await entry.getFile();
+        if (SUPPORTED_FORMATS.includes(file.type)) {
+            // For root files, path is just the name.
+            yield { file, handle: entry, path: entry.name };
+        }
+    } else if (entry.kind === 'directory') {
+        for await (const handle of entry.values()) {
+            // Pass down the current path to build the relative path
+            for await (const nestedFile of getFilesRecursively(handle)) {
+                 yield { ...nestedFile, path: `${entry.name}/${nestedFile.path}` };
+            }
+        }
+    }
+}
+
 
 const App: React.FC = () => {
     const [files, setFiles] = useState<AudioFile[]>([]);
@@ -100,11 +119,9 @@ const App: React.FC = () => {
     useEffect(() => {
         setFiles(currentFiles => 
             currentFiles.map(file => {
-                if (file.fetchedTags) {
-                    const newName = generatePath(renamePattern, file.fetchedTags, file.file.name);
-                    return { ...file, newName };
-                }
-                return file;
+                const tagsToUse = file.fetchedTags || file.originalTags;
+                const newName = generatePath(renamePattern, tagsToUse, file.file.name);
+                return { ...file, newName };
             })
         );
     }, [renamePattern, files.map(f => f.fetchedTags).join(',')]);
@@ -142,7 +159,7 @@ const App: React.FC = () => {
         }
     }, [files, aiProvider, apiKeys, updateFileState]);
 
-    const addFilesToQueue = useCallback(async (filesToAdd: { file: File, handle?: any }[]) => {
+    const addFilesToQueue = useCallback(async (filesToAdd: { file: File, handle?: any, path?: string }[]) => {
         if (typeof uuid === 'undefined') {
             alert("Błąd krytyczny: Biblioteka 'uuid' nie została załadowana. Odśwież stronę.");
             return;
@@ -151,7 +168,8 @@ const App: React.FC = () => {
         const validAudioFiles = filesToAdd.filter(item => SUPPORTED_FORMATS.includes(item.file.type));
         
         if (validAudioFiles.length === 0) {
-            throw new Error("Żaden z podanych plików nie jest obsługiwanym plikiem audio.");
+            const attemptedTypes = filesToAdd.map(f => f.file.type || 'nieznany').join(', ');
+            throw new Error(`Żaden z podanych plików nie jest obsługiwanym formatem audio. Wykryte typy: ${attemptedTypes}`);
         }
     
         const newAudioFiles: AudioFile[] = await Promise.all(
@@ -161,6 +179,7 @@ const App: React.FC = () => {
                     id: uuid.v4(),
                     file: item.file,
                     handle: item.handle, // Store the file handle
+                    webkitRelativePath: item.path || item.file.webkitRelativePath, // Store relative path for direct mode
                     state: ProcessingState.PENDING,
                     originalTags,
                     dateAdded: Date.now(),
@@ -170,11 +189,14 @@ const App: React.FC = () => {
     
         setFiles(prev => [...prev, ...newAudioFiles]);
         
-        processingQueueRef.current.push(...newAudioFiles.map(f => f.id));
-        for(let i=0; i<MAX_CONCURRENT_REQUESTS; i++) {
-            processQueue();
+        // Don't auto-process in direct access mode. Let user initiate.
+        if (!directoryHandle) {
+            processingQueueRef.current.push(...newAudioFiles.map(f => f.id));
+            for(let i=0; i<MAX_CONCURRENT_REQUESTS; i++) {
+                processQueue();
+            }
         }
-    }, [processQueue]);
+    }, [processQueue, directoryHandle]);
 
     const handleFilesSelected = useCallback(async (selectedFiles: FileList) => {
         try {
@@ -191,14 +213,9 @@ const App: React.FC = () => {
         setFiles([]); // Clear previous files
         
         try {
-            const filesToProcess: { file: File, handle: any }[] = [];
-            for await (const entry of handle.values()) {
-                if (entry.kind === 'file') {
-                    const file = await entry.getFile();
-                    if (SUPPORTED_FORMATS.includes(file.type)) {
-                        filesToProcess.push({ file: file, handle: entry });
-                    }
-                }
+            const filesToProcess: { file: File, handle: any, path: string }[] = [];
+            for await (const fileData of getFilesRecursively(handle)) {
+                filesToProcess.push(fileData);
             }
             await addFilesToQueue(filesToProcess);
         } catch (error) {
@@ -221,8 +238,8 @@ const App: React.FC = () => {
     
             const blob = await response.blob();
             
-            if (!blob.type.startsWith('audio/')) {
-                throw new Error(`Pobrany plik nie jest plikiem audio. Wykryty typ: ${blob.type || 'nieznany'}`);
+            if (!SUPPORTED_FORMATS.some(format => blob.type.startsWith(format.split('/')[0]))) {
+                 throw new Error(`Pobrany plik nie jest obsługiwanym plikiem audio. Wykryty typ: ${blob.type || 'nieznany'}`);
             }
     
             let filename = 'remote_file.mp3';
@@ -339,9 +356,9 @@ const App: React.FC = () => {
     };
 
     const handleSaveDirectly = async () => {
-        const filesToSave = selectedFiles.filter(f => f.state === ProcessingState.SUCCESS && f.handle);
+        const filesToSave = selectedFiles.filter(f => f.handle);
         if (filesToSave.length === 0) {
-            alert("Nie wybrano pomyślnie przetworzonych plików do zapisania.");
+            alert("Nie wybrano żadnych plików do zapisania lub pliki nie pochodzą z trybu bezpośredniego dostępu.");
             return;
         }
 
@@ -349,11 +366,14 @@ const App: React.FC = () => {
         setFiles(files => files.map(f => fileIdsToSave.includes(f.id) ? { ...f, state: ProcessingState.DOWNLOADING } : f));
     
         let successCount = 0;
+        let successfullySavedIds: string[] = [];
+
         for (const audioFile of filesToSave) {
             const result = await saveFileDirectly(directoryHandle, audioFile);
             if (result.success && result.updatedFile) {
-                updateFileState(audioFile.id, { ...result.updatedFile, state: ProcessingState.SUCCESS });
+                setFiles(prev => prev.map(f => f.id === audioFile.id ? { ...result.updatedFile, state: ProcessingState.SUCCESS } : f));
                 successCount++;
+                successfullySavedIds.push(audioFile.id);
             } else {
                 updateFileState(audioFile.id, { state: ProcessingState.ERROR, errorMessage: result.errorMessage });
             }
@@ -361,10 +381,13 @@ const App: React.FC = () => {
     
         alert(`Zapisano pomyślnie ${successCount} z ${filesToSave.length} plików.`);
 
-        // Revert any remaining DOWNLOADING states
+        // Revert any remaining DOWNLOADING states and deselect successful ones
         setFiles(files => files.map(f => {
-            if (f.state === ProcessingState.DOWNLOADING) {
-               return { ...f, state: ProcessingState.SUCCESS };
+            if (f.state === ProcessingState.DOWNLOADING) { // This catches failures
+               return { ...f, state: ProcessingState.ERROR, errorMessage: "Zapis nie powiódł się" };
+            }
+            if (successfullySavedIds.includes(f.id)) {
+                return { ...f, isSelected: false }; // Deselect on success
             }
             return f;
         }));
@@ -373,8 +396,8 @@ const App: React.FC = () => {
     const handleDownloadZip = async () => {
         if (selectedFiles.length === 0) return;
 
-        const filesToDownload = selectedFiles.filter(f => f.state === ProcessingState.SUCCESS || f.state === ProcessingState.ERROR);
-        const successfulFiles = filesToDownload.filter(f => f.state === ProcessingState.SUCCESS);
+        const filesToDownload = selectedFiles;
+        const successfulFiles = filesToDownload.filter(f => f.state === ProcessingState.SUCCESS || f.state === ProcessingState.PENDING);
 
         if (successfulFiles.length === 0) {
             alert("Nie wybrano żadnych pomyślnie przetworzonych plików do pobrania.");
@@ -402,8 +425,8 @@ const App: React.FC = () => {
             for (const audioFile of successfulFiles) {
                 try {
                     const isMp3 = audioFile.file.type === 'audio/mpeg' || audioFile.file.type === 'audio/mp3';
-                    if (isMp3) {
-                        const blob = await applyID3Tags(audioFile.file, audioFile.fetchedTags!);
+                    if (isMp3 && audioFile.fetchedTags) {
+                        const blob = await applyID3Tags(audioFile.file, audioFile.fetchedTags);
                         zip.file(audioFile.newName!, blob);
                     } else {
                         // For non-MP3s, add the original file with the new name
@@ -467,7 +490,12 @@ const App: React.FC = () => {
     const handleBatchAnalyze = async () => {
         if (selectedFiles.length === 0 || isBatchAnalyzing) return;
         
-        const filesToProcess = selectedFiles;
+        const filesToProcess = selectedFiles.filter(f => f.state !== ProcessingState.SUCCESS);
+        if (filesToProcess.length === 0) {
+            alert("Wszystkie zaznaczone pliki zostały już przetworzone.");
+            return;
+        }
+
         const fileIdsToProcess = filesToProcess.map(f => f.id);
 
         setIsBatchAnalyzing(true);
@@ -502,6 +530,8 @@ const App: React.FC = () => {
             setIsBatchAnalyzing(false);
         }
     };
+    
+    const filesForRenamePreview = selectedFiles.length > 0 ? selectedFiles : files.slice(0, 5);
 
     return (
         <div className="bg-slate-50 dark:bg-slate-900 min-h-screen font-sans text-slate-800 dark:text-slate-200">
@@ -561,7 +591,7 @@ const App: React.FC = () => {
             {/* --- Modals --- */}
             {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveApiKeys} currentKeys={apiKeys} />}
             {modalState.type === 'edit' && modalFile && <EditTagsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => handleSaveTags(modalFile.id, tags)} file={modalFile} onManualSearch={handleManualSearch} onZoomCover={(imageUrl) => setModalState({ type: 'zoom-cover', imageUrl })} />}
-            {modalState.type === 'rename' && <RenameModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveRenamePattern} currentPattern={renamePattern} exampleFile={files.find(f => f.fetchedTags)} />}
+            {modalState.type === 'rename' && <RenameModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveRenamePattern} currentPattern={renamePattern} files={filesForRenamePreview} />}
             {modalState.type === 'delete' && (
                 <ConfirmationModal 
                     isOpen={true} 

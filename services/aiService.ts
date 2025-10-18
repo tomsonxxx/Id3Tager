@@ -13,7 +13,7 @@ const getSystemInstruction = () => {
   return `You are an expert music archivist with access to a vast database of music information, equivalent to searching across major portals like MusicBrainz, Discogs, AllMusic, Spotify, and Apple Music.
 Your task is to identify the song from the provided filename and any existing tags, and then provide the most accurate and complete ID3 tag information possible.
 - Analyze the filename and existing tags to identify the track.
-- Search your knowledge base for the definitive artist, title, album, release year, and genre.
+- Search for all relevant tags: title, artist, album, release year, genre, track number, disc number (e.g., '1/2'), album artist, composer, original artist, copyright info, and who it was encoded by.
 - Determine the overall 'mood' of the song (e.g., energetic, melancholic, calm, epic).
 - Provide brief 'comments' about the song (e.g., "Classic 80s rock anthem with a memorable guitar solo.").
 - VERY IMPORTANT: Prioritize the original studio album the song was first released on. Avoid 'Greatest Hits' compilations, singles, or re-releases unless it's the only available source.
@@ -26,11 +26,18 @@ The response must be in JSON format.`;
 const singleFileResponseSchema = {
     type: Type.OBJECT,
     properties: {
-        artist: { type: Type.STRING, description: "The name of the main artist or band." },
+        artist: { type: Type.STRING, description: "The name of the main artist or band for the track." },
         title: { type: Type.STRING, description: "The official title of the song." },
         album: { type: Type.STRING, description: "The name of the original studio album." },
         year: { type: Type.STRING, description: "The 4-digit release year of the original album or song." },
         genre: { type: Type.STRING, description: "The primary genre of the music." },
+        trackNumber: { type: Type.STRING, description: "The track number, possibly including the total count (e.g., '01' or '1/12')." },
+        albumArtist: { type: Type.STRING, description: "The primary artist for the entire album, if different from the track artist." },
+        composer: { type: Type.STRING, description: "The composer(s) of the music." },
+        copyright: { type: Type.STRING, description: "Copyright information for the track." },
+        encodedBy: { type: Type.STRING, description: "The person or company that encoded the file." },
+        originalArtist: { type: Type.STRING, description: "The original artist(s) if the track is a cover." },
+        discNumber: { type: Type.STRING, description: "The disc number, possibly including the total count (e.g., '1' or '1/2')." },
         albumCoverUrl: { type: Type.STRING, description: "A direct URL to a high-quality album cover image." },
         mood: { type: Type.STRING, description: "The overall mood or feeling of the song." },
         comments: { type: Type.STRING, description: "Brief interesting facts or description about the song." },
@@ -139,7 +146,7 @@ export const fetchTagsForBatch = async (
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const fileList = files.map(f => JSON.stringify({ filename: f.file.name, existingTags: f.originalTags })).join(',\n');
-    const prompt = `You are a music archivist. I have a batch of audio files that may be from the same album or artist. Please identify each track based on its filename and existing tags, and provide its full ID3 tags. Here is the list of files:\n\n[${fileList}]\n\nReturn your response as a JSON array. Each object in the array should correspond to one of the input files and contain the 'originalFilename' I provided, along with the identified tags: 'artist', 'title', 'album', 'year', 'genre', 'mood', 'comments', 'albumCoverUrl', 'bitrate', and 'sampleRate'. Be consistent with album and artist names across the batch if they seem related.`;
+    const prompt = `You are a music archivist. I have a batch of audio files that may be from the same album or artist. Please identify each track based on its filename and existing tags, and provide its full ID3 tags. Pay close attention to filenames that suggest they are from the same album or artist (e.g., sequential track numbers like '01-song.mp3', '02-another.mp3'). For these related files, ensure the 'artist', 'album', and 'albumArtist' tags are identical to maintain consistency. Here is the list of files:\n\n[${fileList}]\n\nReturn your response as a valid JSON array. Each object in the array must correspond to one of the input files and contain the 'originalFilename' I provided, along with all the identified tags from the schema.`;
 
     try {
         const response = await ai.models.generateContent({
@@ -153,13 +160,43 @@ export const fetchTagsForBatch = async (
         });
         
         const text = response.text.trim();
-        const parsedResponse: BatchResult[] = JSON.parse(text);
+        let parsedResponse: any[];
+        try {
+            parsedResponse = JSON.parse(text);
+        } catch (e) {
+            console.error("Failed to parse JSON from Gemini batch response:", text, e);
+            throw new Error("Otrzymano nieprawidłowy format JSON z AI.");
+        }
         
         if (!Array.isArray(parsedResponse)) {
+             console.error("Batch AI response is not a valid JSON array.", parsedResponse);
              throw new Error("Odpowiedź AI nie jest w formacie tablicy JSON.");
         }
         
-        return parsedResponse;
+        const validatedResults: BatchResult[] = [];
+        const requestedFilenames = new Set(files.map(f => f.file.name));
+    
+        for (const item of parsedResponse) {
+            if (typeof item !== 'object' || item === null) {
+                console.warn("Skipping invalid item in batch response (not an object):", item);
+                continue;
+            }
+            if (!item.originalFilename || typeof item.originalFilename !== 'string') {
+                console.warn("Skipping item in batch response with missing or invalid 'originalFilename':", item);
+                continue;
+            }
+            if (!requestedFilenames.has(item.originalFilename)) {
+                console.warn(`Skipping item in batch response with an unexpected 'originalFilename' that was not in the request: ${item.originalFilename}`);
+                continue;
+            }
+            validatedResults.push(item as BatchResult);
+        }
+    
+        if(validatedResults.length < files.length) {
+            console.warn(`Batch response contained ${validatedResults.length} valid items, but ${files.length} files were requested. Some files may not be updated.`);
+        }
+        
+        return validatedResults;
 
     } catch (error) {
         console.error("Błąd podczas pobierania tagów wsadowo z Gemini API:", error);

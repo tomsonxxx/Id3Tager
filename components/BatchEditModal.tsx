@@ -9,21 +9,14 @@ interface BatchEditModalProps {
   files: AudioFile[];
 }
 
-type EditableTags = Pick<ID3Tags, 'artist' | 'album' | 'year' | 'genre' | 'mood' | 'comments' | 'bitrate' | 'sampleRate'>;
-const editableTagKeys: (keyof EditableTags)[] = ['artist', 'album', 'year', 'genre', 'mood', 'comments', 'bitrate', 'sampleRate'];
+type EditableTags = Pick<ID3Tags, 'artist' | 'albumArtist' | 'album' | 'year' | 'genre' | 'mood' | 'comments' | 'composer' | 'copyright' | 'encodedBy' | 'originalArtist' | 'discNumber' | 'bitrate' | 'sampleRate'>;
+const editableTagKeys: (keyof EditableTags)[] = ['artist', 'albumArtist', 'album', 'year', 'genre', 'composer', 'originalArtist', 'discNumber', 'mood', 'copyright', 'encodedBy', 'comments', 'bitrate', 'sampleRate'];
 
 const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave, files }) => {
   const [tags, setTags] = useState<Partial<EditableTags>>({});
-  const [fieldsToUpdate, setFieldsToUpdate] = useState<Record<keyof EditableTags, boolean>>({
-    artist: false,
-    album: false,
-    year: false,
-    genre: false,
-    mood: false,
-    comments: false,
-    bitrate: false,
-    sampleRate: false,
-  });
+  const [fieldsToUpdate, setFieldsToUpdate] = useState<Record<keyof EditableTags, boolean>>(() =>
+    editableTagKeys.reduce((acc, key) => ({ ...acc, [key]: false }), {} as Record<keyof EditableTags, boolean>)
+  );
 
   const commonTags = useMemo<Partial<EditableTags>>(() => {
     if (!files || files.length === 0) return {};
@@ -52,9 +45,9 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
     if(isOpen) {
         setTags(commonTags);
         // Reset checkboxes on open
-        setFieldsToUpdate({
-            artist: false, album: false, year: false, genre: false, mood: false, comments: false, bitrate: false, sampleRate: false,
-        });
+        setFieldsToUpdate(
+          editableTagKeys.reduce((acc, key) => ({ ...acc, [key]: false }), {} as Record<keyof EditableTags, boolean>)
+        );
     }
   }, [isOpen, commonTags]);
 
@@ -88,6 +81,7 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
 
   const tagLabels: Record<keyof EditableTags, string> = {
       artist: 'Wykonawca',
+      albumArtist: 'Wykonawca albumu',
       album: 'Album',
       year: 'Rok',
       genre: 'Gatunek',
@@ -95,6 +89,11 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
       comments: 'Komentarze',
       bitrate: 'Bitrate (kbps)',
       sampleRate: 'Sample Rate (Hz)',
+      composer: 'Kompozytor',
+      copyright: 'Prawa autorskie',
+      encodedBy: 'Zakodowane przez',
+      originalArtist: 'Oryginalny wykonawca',
+      discNumber: 'Numer dysku',
   };
 
   return (

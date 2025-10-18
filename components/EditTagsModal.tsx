@@ -68,10 +68,13 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const tagFields: (keyof Omit<ID3Tags, 'albumCoverUrl' | 'comments'>)[] = ['title', 'artist', 'album', 'year', 'genre', 'mood', 'bitrate', 'sampleRate'];
+  const tagFields: (keyof Omit<ID3Tags, 'albumCoverUrl' | 'comments'>)[] = [
+    'title', 'artist', 'albumArtist', 'album', 'year', 'trackNumber', 'discNumber', 'genre', 'composer', 'originalArtist', 'mood', 'copyright', 'encodedBy', 'bitrate', 'sampleRate'
+  ];
   const tagLabels: Record<string, string> = {
     title: 'Tytuł',
     artist: 'Wykonawca',
+    albumArtist: 'Wykonawca albumu',
     album: 'Album',
     year: 'Rok',
     genre: 'Gatunek',
@@ -79,6 +82,12 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
     comments: 'Komentarze',
     bitrate: 'Bitrate (kbps)',
     sampleRate: 'Sample Rate (Hz)',
+    trackNumber: 'Numer utworu',
+    discNumber: 'Numer dysku',
+    composer: 'Kompozytor',
+    copyright: 'Prawa autorskie',
+    encodedBy: 'Zakodowane przez',
+    originalArtist: 'Oryginalny wykonawca',
   };
 
   return (
@@ -142,7 +151,7 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
           <div className="md:w-3/4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {tagFields.map((key) => (
-                <div key={key} className={key === 'title' || key === 'album' ? 'sm:col-span-2' : ''}>
+                <div key={key} className={['title', 'album', 'copyright'].includes(key) ? 'sm:col-span-2' : ''}>
                   <label htmlFor={key} className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                     {tagLabels[key]}
                   </label>

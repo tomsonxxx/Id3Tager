@@ -18,6 +18,13 @@ export interface ID3Tags {
   comments?: string;
   bitrate?: number;
   sampleRate?: number;
+  trackNumber?: string; // Can be "1" or "1/12"
+  albumArtist?: string;
+  composer?: string;
+  copyright?: string;
+  encodedBy?: string;
+  originalArtist?: string;
+  discNumber?: string; // Can be "1" or "1/2"
 }
 
 export interface AudioFile {
@@ -31,6 +38,7 @@ export interface AudioFile {
   errorMessage?: string;
   dateAdded: number;
   handle?: any; // FileSystemFileHandle for direct saving
+  webkitRelativePath?: string; // The relative path of the file within the directory
 }
 
 export type GroupKey = 'artist' | 'album' | 'none';

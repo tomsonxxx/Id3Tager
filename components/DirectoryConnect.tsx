@@ -8,31 +8,43 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
 
     const handleConnect = async () => {
         try {
-            // In sandboxed environments (like cross-origin iframes), the standard `showDirectoryPicker`
-            // can be blocked. We check for a platform-specific implementation first.
-            const picker = (window as any).aistudio?.showDirectoryPicker || (window as any).showDirectoryPicker;
-
-            if (!picker) {
-                throw new Error("Funkcja wyboru folderu nie jest obsługiwana w tej przeglądarce lub środowisku.");
+            // First, try the brokered API provided by the platform (e.g., AI Studio)
+            const aistudioPicker = (window as any).aistudio?.showDirectoryPicker;
+            if (typeof aistudioPicker === 'function') {
+                const handle = await aistudioPicker({ mode: 'readwrite' });
+                onDirectoryConnect(handle);
+                return;
             }
-            
-            // Explicitly request read-write access.
-            const handle = await picker({
-                mode: 'readwrite'
-            });
-            onDirectoryConnect(handle);
+    
+            // If the brokered API isn't found, try the standard browser API.
+            // This will work in a normal browser tab. If it fails in a sandboxed iframe,
+            // the catch block will handle the resulting SecurityError.
+            if (typeof (window as any).showDirectoryPicker === 'function') {
+                const handle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+                onDirectoryConnect(handle);
+                return;
+            }
+    
+            // If neither API is available, the feature is not supported.
+            throw new Error("Funkcja wyboru folderu nie jest obsługiwana w tej przeglądarce.");
+    
         } catch (error) {
-            // Handle the case where the user cancels the picker or permission is denied
-            if ((error as Error).name === 'AbortError') {
+            const err = error as Error;
+    
+            // User cancelling the picker is a normal operation, not an error.
+            if (err.name === 'AbortError') {
                 console.log('User cancelled the directory picker.');
-            } else if ((error as Error).name === 'SecurityError') {
-                 console.error('SecurityError connecting to directory:', error);
-                 alert('Dostęp do folderu został zablokowany ze względów bezpieczeństwa. Upewnij się, że strona ma odpowiednie uprawnienia (HTTPS) i nie jest blokowana przez rozszerzenia przeglądarki.');
+                return;
             }
-            else {
-                console.error('Error connecting to directory:', error);
-                const errorMessage = error instanceof Error ? error.message : "Wystąpił nieznany błąd.";
-                alert(`Nie udało się otworzyć folderu: ${errorMessage}. Upewnij się, że przyznano odpowiednie uprawnienia w przeglądarce.`);
+    
+            // Specifically handle the SecurityError that occurs in sandboxed iframes.
+            if (err.name === 'SecurityError') {
+                console.error('SecurityError while showing directory picker:', err);
+                alert("Dostęp do folderu jest niemożliwy w tym odizolowanym środowisku. Aplikacja nie ma uprawnień do otwierania lokalnych folderów, gdy jest osadzona w innej stronie.");
+            } else {
+                // Handle other potential errors.
+                console.error('Error connecting to directory:', err);
+                alert(`Nie udało się otworzyć folderu: ${err.message || "Wystąpił nieznany błąd."}`);
             }
         }
     };

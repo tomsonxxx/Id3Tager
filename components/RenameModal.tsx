@@ -7,12 +7,12 @@ interface RenameModalProps {
   onClose: () => void;
   onSave: (newPattern: string) => void;
   currentPattern: string;
-  exampleFile?: AudioFile;
+  files: AudioFile[]; // Changed from exampleFile to a list
 }
 
-const placeholders: (keyof ID3Tags)[] = ['artist', 'title', 'album', 'year', 'genre'];
+const placeholders = ['artist', 'title', 'album', 'year', 'genre', 'trackNumber', 'albumArtist', 'discNumber', 'composer'];
 
-const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, currentPattern, exampleFile }) => {
+const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, currentPattern, files }) => {
   const [pattern, setPattern] = useState(currentPattern);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -46,23 +46,26 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
 
   if (!isOpen) return null;
 
-  const exampleTags: ID3Tags = exampleFile?.fetchedTags || {
+  const hasFilesForPreview = files && files.length > 0;
+
+  const genericExampleTags: ID3Tags = {
       artist: 'Przykładowy Artysta',
+      albumArtist: 'Artysta Albumu',
       title: 'Tytuł Utworu',
       album: 'Nazwa Albumu',
       year: '2024',
-      genre: 'Pop'
+      genre: 'Pop',
+      trackNumber: '01',
+      discNumber: '1',
+      composer: 'Kompozytor'
   };
-  const exampleFilename = exampleFile?.file.name || 'przyklad.mp3';
-  const preview = generatePath(pattern, exampleTags, exampleFilename);
-
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-2xl mx-4 transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-3xl mx-4 transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Ustaw szablon zmiany nazw</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-          Stwórz schemat, według którego będą generowane nowe nazwy plików. Możesz używać ukośnika `/` do tworzenia folderów.
+          Stwórz schemat, według którego będą generowane nowe nazwy plików. Użyj ukośnika <strong>/</strong> aby automatycznie tworzyć podfoldery, np. <code>[artist]/[album]/[title]</code>.
         </p>
         
         <div>
@@ -95,10 +98,34 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
             </div>
         </div>
 
-        <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-900 rounded-md">
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Podgląd:</p>
-            <p className="text-sm text-indigo-600 dark:text-indigo-400 font-mono break-all mt-1" title={preview}>{preview}</p>
-        </div>
+        {hasFilesForPreview ? (
+             <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-900 rounded-md max-h-64 overflow-y-auto">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 sticky top-0 bg-slate-100 dark:bg-slate-900 pb-2">Podgląd ({files.length} {files.length === 1 ? 'plik' : files.length > 1 && files.length < 5 ? 'pliki' : 'plików'}):</p>
+                <ul className="text-xs font-mono mt-1 space-y-2">
+                    {files.map(file => {
+                        const preview = generatePath(pattern, file.fetchedTags || file.originalTags, file.file.name);
+                        return (
+                            <li key={file.id} className="grid grid-cols-[1fr,auto,1fr] gap-2 items-center">
+                                <span className="truncate text-slate-500 dark:text-slate-400 text-right" title={file.file.name}>{file.file.name}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 dark:text-slate-500" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
+                                </svg>
+                                <span className="truncate text-indigo-600 dark:text-indigo-400" title={preview}>
+                                    {preview}
+                                </span>
+                            </li>
+                        )
+                    })}
+                </ul>
+            </div>
+        ) : (
+            <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-900 rounded-md">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Podgląd:</p>
+                <p className="text-sm text-indigo-600 dark:text-indigo-400 font-mono break-all mt-1" title={generatePath(pattern, genericExampleTags, 'przyklad.mp3')}>
+                    {generatePath(pattern, genericExampleTags, 'przyklad.mp3')}
+                </p>
+            </div>
+        )}
 
 
         <div className="flex justify-end space-x-4 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
