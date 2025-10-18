@@ -1,7 +1,9 @@
 import React from 'react';
+import DirectoryConnect from './DirectoryConnect'; // Nowy komponent
 
 interface WelcomeScreenProps {
     children: React.ReactNode; // To będzie FileDropzone
+    onDirectoryConnect: (handle: any) => void;
 }
 
 const Feature: React.FC<{ icon: React.ReactNode; title: string; description: string }> = ({ icon, title, description }) => (
@@ -15,7 +17,9 @@ const Feature: React.FC<{ icon: React.ReactNode; title: string; description: str
 );
 
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ children }) => {
+const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ children, onDirectoryConnect }) => {
+    const isFileSystemAccessSupported = 'showDirectoryPicker' in window;
+    
     return (
         <div className="mt-8 text-center animate-fade-in">
              <div className="max-w-3xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-8 mb-10">
@@ -35,7 +39,20 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ children }) => {
                     description="Automatycznie porządkuje pliki w foldery i zmienia ich nazwy wg schematu."
                 />
             </div>
+            
             {children}
+            
+            {isFileSystemAccessSupported && (
+                 <>
+                    <div className="relative flex items-center w-full max-w-lg mx-auto my-6">
+                        <div className="flex-grow border-t border-slate-300 dark:border-slate-700"></div>
+                        <span className="flex-shrink mx-4 text-slate-400 dark:text-slate-500 text-sm font-bold">LUB</span>
+                        <div className="flex-grow border-t border-slate-300 dark:border-slate-700"></div>
+                    </div>
+                    <DirectoryConnect onDirectoryConnect={onDirectoryConnect} />
+                </>
+            )}
+
         </div>
     );
 };

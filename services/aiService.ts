@@ -18,7 +18,8 @@ Your task is to identify the song from the provided filename and any existing ta
 - Provide brief 'comments' about the song (e.g., "Classic 80s rock anthem with a memorable guitar solo.").
 - VERY IMPORTANT: Prioritize the original studio album the song was first released on. Avoid 'Greatest Hits' compilations, singles, or re-releases unless it's the only available source.
 - Find a URL for a high-quality (at least 500x500 pixels) front cover of the album.
-- If you cannot confidently determine a piece of information, leave the corresponding field empty. Do not guess.
+- Infer the typical audio properties for this release, such as 'bitrate' (in kbps, e.g., 320) and 'sampleRate' (in Hz, e.g., 44100).
+- If you cannot confidently determine a piece of information, leave the corresponding field empty or null. Do not guess.
 The response must be in JSON format.`;
 };
 
@@ -33,6 +34,8 @@ const singleFileResponseSchema = {
         albumCoverUrl: { type: Type.STRING, description: "A direct URL to a high-quality album cover image." },
         mood: { type: Type.STRING, description: "The overall mood or feeling of the song." },
         comments: { type: Type.STRING, description: "Brief interesting facts or description about the song." },
+        bitrate: { type: Type.NUMBER, description: "The typical bitrate in kbps for the release (e.g., 320)." },
+        sampleRate: { type: Type.NUMBER, description: "The typical sample rate in Hz for the release (e.g., 44100)." },
     },
 };
 
@@ -94,10 +97,10 @@ export const fetchTagsForFile = async (
             ...parsedResponse
         };
 
-        // Clean up empty strings
+        // Clean up empty strings or nulls from AI response
         Object.keys(mergedTags).forEach(key => {
             const typedKey = key as keyof ID3Tags;
-            if (mergedTags[typedKey] === "") {
+            if (mergedTags[typedKey] === "" || mergedTags[typedKey] === null) {
                 delete mergedTags[typedKey];
             }
         });
@@ -136,7 +139,7 @@ export const fetchTagsForBatch = async (
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const fileList = files.map(f => JSON.stringify({ filename: f.file.name, existingTags: f.originalTags })).join(',\n');
-    const prompt = `You are a music archivist. I have a batch of audio files that may be from the same album or artist. Please identify each track based on its filename and existing tags, and provide its full ID3 tags. Here is the list of files:\n\n[${fileList}]\n\nReturn your response as a JSON array. Each object in the array should correspond to one of the input files and contain the 'originalFilename' I provided, along with the identified tags: 'artist', 'title', 'album', 'year', 'genre', 'mood', 'comments', and 'albumCoverUrl'. Be consistent with album and artist names across the batch if they seem related.`;
+    const prompt = `You are a music archivist. I have a batch of audio files that may be from the same album or artist. Please identify each track based on its filename and existing tags, and provide its full ID3 tags. Here is the list of files:\n\n[${fileList}]\n\nReturn your response as a JSON array. Each object in the array should correspond to one of the input files and contain the 'originalFilename' I provided, along with the identified tags: 'artist', 'title', 'album', 'year', 'genre', 'mood', 'comments', 'albumCoverUrl', 'bitrate', and 'sampleRate'. Be consistent with album and artist names across the batch if they seem related.`;
 
     try {
         const response = await ai.models.generateContent({

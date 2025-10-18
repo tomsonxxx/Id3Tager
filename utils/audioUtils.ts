@@ -1,5 +1,5 @@
 // Fix: Provide full implementation for audio utility functions.
-import { ID3Tags } from '../types';
+import { ID3Tags, AudioFile } from '../types';
 
 // Assume jsmediatags is loaded globally via a <script> tag
 declare const jsmediatags: any;
@@ -63,18 +63,18 @@ export const proxyImageUrl = (url: string | undefined): string | undefined => {
     if (!url || url.startsWith('data:')) {
         return url;
     }
-    // Using a reliable CORS proxy.
-    return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    // Using a more reliable CORS proxy.
+    return `https://corsproxy.io/?${encodeURIComponent(url)}`;
 };
 
-export const applyID3Tags = async (file: File, tags: ID3Tags, onProgress?: (progress: number) => void): Promise<Blob> => {
+export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => {
     if (typeof ID3Writer === 'undefined') {
         throw new Error("Biblioteka do zapisu tagów (ID3Writer) nie została załadowana.");
     }
     
     // js-id3-writer only supports MP3 files.
     if (file.type !== 'audio/mpeg' && file.type !== 'audio/mp3') {
-        throw new Error(`Zapis tagów dla typu pliku "${file.type}" nie jest obsługiwany. Obecnie wspierany jest tylko format MP3.`);
+        throw new Error(`Zapis tagów jest możliwy tylko dla plików MP3. Ten plik ma format '${file.type}'.`);
     }
 
     const buffer = await file.arrayBuffer();
@@ -95,43 +95,13 @@ export const applyID3Tags = async (file: File, tags: ID3Tags, onProgress?: (prog
             if (tags.albumCoverUrl.startsWith('data:')) {
                 coverBuffer = dataURLToArrayBuffer(tags.albumCoverUrl);
             } else {
-                onProgress?.(0);
                 const proxiedUrl = proxyImageUrl(tags.albumCoverUrl);
                 const response = await fetch(proxiedUrl!);
                 if (!response.ok) {
                     throw new Error(`Nie udało się pobrać okładki: ${response.statusText}`);
                 }
-
-                if (!response.body) {
-                    coverBuffer = await response.arrayBuffer();
-                } else {
-                    const contentLength = Number(response.headers.get('content-length'));
-                    if (!contentLength) {
-                        console.warn("Brak nagłówka content-length, nie można śledzić postępu pobierania okładki.");
-                        coverBuffer = await response.arrayBuffer();
-                    } else {
-                        const reader = response.body.getReader();
-                        let receivedLength = 0;
-                        const chunks: Uint8Array[] = [];
-                        while(true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            chunks.push(value);
-                            receivedLength += value.length;
-                            onProgress?.(Math.round((receivedLength / contentLength) * 100));
-                        }
-                        
-                        const chunksAll = new Uint8Array(receivedLength);
-                        let position = 0;
-                        for(let chunk of chunks) {
-                            chunksAll.set(chunk, position);
-                            position += chunk.length;
-                        }
-                        coverBuffer = chunksAll.buffer;
-                    }
-                }
+                coverBuffer = await response.arrayBuffer();
             }
-            onProgress?.(100);
             writer.setFrame('APIC', {
                 type: 3, // 'Cover (front)'
                 data: coverBuffer,
@@ -139,10 +109,83 @@ export const applyID3Tags = async (file: File, tags: ID3Tags, onProgress?: (prog
             });
         } catch (error) {
             console.warn("Nie można przetworzyć okładki albumu:", error);
-            onProgress?.(100); // Ensure progress completes even on error
+            // Don't let a failed cover download stop the whole process.
+            // The rest of the tags will still be written.
         }
     }
 
     writer.addTag();
     return writer.getBlob();
+};
+
+
+/**
+ * Saves a file directly to the user's filesystem using the File System Access API.
+ * Handles writing tags for MP3s and renaming for all file types.
+ * @param dirHandle The handle to the directory where the file resides.
+ * @param audioFile The file object from the application state.
+ * @returns An object indicating success and the updated file object for state management.
+ */
+export const saveFileDirectly = async (
+  dirHandle: any, // FileSystemDirectoryHandle
+  audioFile: AudioFile
+): Promise<{ success: boolean; updatedFile?: AudioFile; errorMessage?: string }> => {
+  try {
+    const isMp3 = audioFile.file.type === 'audio/mpeg' || audioFile.file.type === 'audio/mp3';
+    const originalHandle = audioFile.handle;
+    if (!originalHandle) {
+      throw new Error("Brak referencji do pliku (file handle). Nie można zapisać.");
+    }
+    
+    let blobToSave: Blob;
+    let performedTagWrite = false;
+
+    // Only attempt to write tags for MP3 files
+    if (isMp3 && audioFile.fetchedTags) {
+      blobToSave = await applyID3Tags(audioFile.file, audioFile.fetchedTags);
+      performedTagWrite = true;
+    } else {
+      blobToSave = audioFile.file; // Use original content for non-MP3s or if no tags
+    }
+
+    const needsRename = audioFile.newName && audioFile.newName !== audioFile.file.name;
+
+    // If no action is needed (no rename and not an MP3 to write tags to), we can skip.
+    if (!needsRename && !performedTagWrite) {
+      return { success: true, updatedFile: audioFile };
+    }
+
+    if (needsRename) {
+      // Create new file, write content, then remove the old one.
+      const newHandle = await dirHandle.getFileHandle(audioFile.newName!, { create: true });
+      const writable = await newHandle.createWritable();
+      await writable.write(blobToSave);
+      await writable.close();
+      
+      // Important: only remove the old entry if the name actually changed.
+      if (originalHandle.name !== newHandle.name) {
+          await dirHandle.removeEntry(originalHandle.name);
+      }
+
+      const newFile = await newHandle.getFile();
+      return { 
+        success: true, 
+        updatedFile: { ...audioFile, file: newFile, handle: newHandle, newName: newFile.name }
+      };
+    } else {
+      // Overwrite the existing file.
+      const writable = await originalHandle.createWritable();
+      await writable.write(blobToSave);
+      await writable.close();
+      
+      const updatedCoreFile = await originalHandle.getFile();
+      return { 
+        success: true, 
+        updatedFile: { ...audioFile, file: updatedCoreFile }
+      };
+    }
+  } catch (err: any) {
+    console.error(`Nie udało się zapisać pliku ${audioFile.file.name}:`, err);
+    return { success: false, errorMessage: err.message || "Wystąpił nieznany błąd zapisu." };
+  }
 };

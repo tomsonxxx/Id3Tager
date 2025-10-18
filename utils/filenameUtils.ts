@@ -1,3 +1,4 @@
+// Fix: Provide full implementation for the filename utility.
 import { ID3Tags } from '../types';
 
 export const generatePath = (
@@ -5,7 +6,7 @@ export const generatePath = (
   tags: ID3Tags,
   originalFilename: string
 ): string => {
-  const extension = originalFilename.split('.').pop()?.toLowerCase() || 'mp3';
+  const extension = originalFilename.split('.').pop() || 'mp3';
   
   // Get the most complete set of tags available
   const effectiveTags = { ...tags };
@@ -18,11 +19,9 @@ export const generatePath = (
     .replace(/\[genre\]/gi, effectiveTags.genre || 'Unknown Genre');
 
   // Sanitize filename to remove invalid characters for filenames and paths
-  // This regex handles both Windows and Unix-like systems for each path segment.
-  const sanitizePart = (part: string) => part.trim().replace(/[\\?%*:|"<>]/g, '-').replace(/^\.+/, '').trim();
+  // This regex handles both Windows and Unix-like systems.
+  newName = newName.replace(/[\\?%*:|"<>]/g, '-').replace(/^\.+/, '');
   
-  // Sanitize each part of the path separately
-  const sanitizedPath = newName.split('/').map(sanitizePart).join('/');
-  
-  return `${sanitizedPath}.${extension}`;
+  // Also sanitize path parts
+  return newName.split('/').map(part => part.replace(/[\\?%*:|"<>]/g, '-').trim()).join('/') + `.${extension}`;
 };
