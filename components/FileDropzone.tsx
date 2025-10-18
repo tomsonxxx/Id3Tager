@@ -1,4 +1,3 @@
-
 import React, { useCallback, useState, useRef } from 'react';
 
 // Fix: Augment React's type definitions to include the non-standard 'webkitdirectory' 
@@ -10,19 +9,28 @@ declare global {
       webkitdirectory?: string;
     }
   }
+  // Fix: Add type definition for the non-standard File System Access API
+  // to resolve the call signature error on `window.showOpenFilePicker`.
+  interface Window {
+    showOpenFilePicker(options?: {
+        multiple?: boolean;
+        types?: {
+            description: string;
+            accept: Record<string, string[]>;
+        }[];
+    }): Promise<FileSystemFileHandle[]>;
+  }
 }
-
 interface FileDropzoneProps {
-  onFilesSelected: (files: FileList) => void;
+  onFileHandlesSelected: (handles: FileSystemFileHandle[]) => void;
   onUrlSubmitted: (url: string) => Promise<void>;
   isProcessing: boolean;
 }
 
-const FileDropzone: React.FC<FileDropzoneProps> = ({ onFilesSelected, onUrlSubmitted, isProcessing }) => {
+const FileDropzone: React.FC<FileDropzoneProps> = ({ onFileHandlesSelected, onUrlSubmitted, isProcessing }) => {
   const [isDragActive, setIsDragActive] = useState(false);
   const [url, setUrl] = useState('');
   const [isUrlProcessing, setIsUrlProcessing] = useState(false);
-  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -34,27 +42,51 @@ const FileDropzone: React.FC<FileDropzoneProps> = ({ onFilesSelected, onUrlSubmi
     }
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      onFilesSelected(e.dataTransfer.files);
+    if (e.dataTransfer.items) {
+      const handles: FileSystemFileHandle[] = [];
+      for (const item of e.dataTransfer.items) {
+          if (item.kind === 'file') {
+              const handle = await (item as any).getAsFileSystemHandle();
+              if (handle) {
+                  handles.push(handle);
+              }
+          }
+      }
+      if (handles.length > 0) {
+        onFileHandlesSelected(handles);
+      }
     }
-  }, [onFilesSelected]);
+  }, [onFileHandlesSelected]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      onFilesSelected(e.target.files);
-      // Reset input value to allow selecting the same file(s) again
-      e.target.value = '';
+ const handleFileSelectClick = async () => {
+    if ('showOpenFilePicker' in window) {
+      try {
+        const handles = await window.showOpenFilePicker({
+          multiple: true,
+          types: [{
+            description: 'Audio Files',
+            accept: {
+              'audio/mpeg': ['.mp3'],
+              'audio/flac': ['.flac'],
+              'audio/wav': ['.wav'],
+              'audio/ogg': ['.ogg'],
+              'audio/mp4': ['.m4a'],
+            }
+          }]
+        });
+        onFileHandlesSelected(handles);
+      } catch (err) {
+        console.info('User cancelled file picker');
+      }
+    } else {
+      // Fallback for older browsers
+      alert("Twoja przeglądarka nie wspiera nowoczesnego API dostępu do plików. Niektóre funkcje, jak zapis bezpośredni, mogą być niedostępne.");
     }
   };
-  
-  const handleFolderButtonClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      folderInputRef.current?.click();
-  }
   
   const handleUrlSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,39 +113,13 @@ const FileDropzone: React.FC<FileDropzoneProps> = ({ onFilesSelected, onUrlSubmi
       onDragLeave={handleDrag}
       onDrop={handleDrop}
     >
-      <input
-        type="file"
-        id="file-input"
-        className="absolute w-full h-full top-0 left-0 opacity-0 cursor-pointer"
-        multiple
-        accept="audio/mpeg, audio/mp3, audio/flac, audio/wav, audio/ogg, audio/m4a"
-        onChange={handleFileChange}
-        disabled={isProcessing}
-      />
-       <input
-        type="file"
-        id="folder-input"
-        ref={folderInputRef}
-        className="hidden"
-        multiple
-        webkitdirectory=""
-        onChange={handleFileChange}
-        disabled={isProcessing}
-      />
-      <label htmlFor="file-input" className="flex flex-col items-center justify-center text-center cursor-pointer">
+      <div onClick={isProcessing ? undefined : handleFileSelectClick} className="flex flex-col items-center justify-center text-center cursor-pointer">
         <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 mb-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
         </svg>
         <p className="text-xl font-semibold text-slate-700 dark:text-slate-300">Przeciągnij i upuść pliki audio tutaj</p>
         <p className="text-slate-600 dark:text-slate-500">lub kliknij, aby je wybrać</p>
-      </label>
-       <button 
-         onClick={handleFolderButtonClick} 
-         disabled={isProcessing}
-         className="mt-4 px-4 py-2 text-sm font-semibold text-indigo-600 dark:text-indigo-300 bg-slate-200/50 dark:bg-slate-700/50 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-50 dark:focus:ring-offset-slate-900 focus:ring-indigo-500 z-10"
-        >
-            lub Wybierz cały folder
-        </button>
+      </div>
       <p className="mt-4 text-xs text-slate-500 dark:text-slate-600">Obsługiwane formaty: MP3, FLAC, WAV, OGG, M4A</p>
 
         <div className="relative flex items-center w-full my-6">

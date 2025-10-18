@@ -67,14 +67,14 @@ export const proxyImageUrl = (url: string | undefined): string | undefined => {
     return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
 };
 
-export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => {
+export const applyID3Tags = async (file: File, tags: ID3Tags, onProgress?: (progress: number) => void): Promise<Blob> => {
     if (typeof ID3Writer === 'undefined') {
         throw new Error("Biblioteka do zapisu tagów (ID3Writer) nie została załadowana.");
     }
     
     // js-id3-writer only supports MP3 files.
     if (file.type !== 'audio/mpeg' && file.type !== 'audio/mp3') {
-        throw new Error(`Zapis tagów jest możliwy tylko dla plików MP3. Ten plik ma format '${file.type}'.`);
+        throw new Error(`Zapis tagów dla typu pliku "${file.type}" nie jest obsługiwany. Obecnie wspierany jest tylko format MP3.`);
     }
 
     const buffer = await file.arrayBuffer();
@@ -95,13 +95,43 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
             if (tags.albumCoverUrl.startsWith('data:')) {
                 coverBuffer = dataURLToArrayBuffer(tags.albumCoverUrl);
             } else {
+                onProgress?.(0);
                 const proxiedUrl = proxyImageUrl(tags.albumCoverUrl);
                 const response = await fetch(proxiedUrl!);
                 if (!response.ok) {
                     throw new Error(`Nie udało się pobrać okładki: ${response.statusText}`);
                 }
-                coverBuffer = await response.arrayBuffer();
+
+                if (!response.body) {
+                    coverBuffer = await response.arrayBuffer();
+                } else {
+                    const contentLength = Number(response.headers.get('content-length'));
+                    if (!contentLength) {
+                        console.warn("Brak nagłówka content-length, nie można śledzić postępu pobierania okładki.");
+                        coverBuffer = await response.arrayBuffer();
+                    } else {
+                        const reader = response.body.getReader();
+                        let receivedLength = 0;
+                        const chunks: Uint8Array[] = [];
+                        while(true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            chunks.push(value);
+                            receivedLength += value.length;
+                            onProgress?.(Math.round((receivedLength / contentLength) * 100));
+                        }
+                        
+                        const chunksAll = new Uint8Array(receivedLength);
+                        let position = 0;
+                        for(let chunk of chunks) {
+                            chunksAll.set(chunk, position);
+                            position += chunk.length;
+                        }
+                        coverBuffer = chunksAll.buffer;
+                    }
+                }
             }
+            onProgress?.(100);
             writer.setFrame('APIC', {
                 type: 3, // 'Cover (front)'
                 data: coverBuffer,
@@ -109,8 +139,7 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
             });
         } catch (error) {
             console.warn("Nie można przetworzyć okładki albumu:", error);
-            // Don't let a failed cover download stop the whole process.
-            // The rest of the tags will still be written.
+            onProgress?.(100); // Ensure progress completes even on error
         }
     }
 

@@ -9,8 +9,8 @@ interface BatchEditModalProps {
   files: AudioFile[];
 }
 
-type EditableTags = Pick<ID3Tags, 'artist' | 'album' | 'year' | 'genre' | 'mood' | 'comments' | 'bitrate' | 'sampleRate'>;
-const editableTagKeys: (keyof EditableTags)[] = ['artist', 'album', 'year', 'genre', 'mood', 'comments', 'bitrate', 'sampleRate'];
+type EditableTags = Pick<ID3Tags, 'artist' | 'album' | 'year' | 'genre' | 'mood' | 'comments'>;
+const editableTagKeys: (keyof EditableTags)[] = ['artist', 'album', 'year', 'genre', 'mood', 'comments'];
 
 const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave, files }) => {
   const [tags, setTags] = useState<Partial<EditableTags>>({});
@@ -21,30 +21,19 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
     genre: false,
     mood: false,
     comments: false,
-    bitrate: false,
-    sampleRate: false,
   });
 
   const commonTags = useMemo<Partial<EditableTags>>(() => {
     if (!files || files.length === 0) return {};
-    const firstFileTags: Partial<ID3Tags> = files[0].fetchedTags || {};
+    const firstFileTags = files[0].fetchedTags || {};
     const result: Partial<EditableTags> = {};
 
-    for (const key of editableTagKeys) {
+    editableTagKeys.forEach(key => {
         const firstValue = firstFileTags[key];
-        if (files.every(f => (f.fetchedTags?.[key] ?? '') === (firstValue ?? ''))) {
-            // Fix: Help TypeScript understand that the key determines the value type to avoid an incorrect "not assignable to never" error.
-            if (key === 'bitrate' || key === 'sampleRate') {
-                if (typeof firstValue === 'number' || typeof firstValue === 'undefined') {
-                  result[key] = firstValue;
-                }
-            } else {
-                if (typeof firstValue === 'string' || typeof firstValue === 'undefined') {
-                  result[key] = firstValue;
-                }
-            }
+        if (files.every(f => (f.fetchedTags?.[key] || '') === (firstValue || ''))) {
+            result[key] = firstValue;
         }
-    }
+    });
     return result;
   }, [files]);
 
@@ -53,14 +42,14 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
         setTags(commonTags);
         // Reset checkboxes on open
         setFieldsToUpdate({
-            artist: false, album: false, year: false, genre: false, mood: false, comments: false, bitrate: false, sampleRate: false,
+            artist: false, album: false, year: false, genre: false, mood: false, comments: false
         });
     }
   }, [isOpen, commonTags]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    setTags(prev => ({ ...prev, [name]: type === 'number' ? (value ? Number(value) : undefined) : value }));
+    const { name, value } = e.target;
+    setTags(prev => ({ ...prev, [name]: value }));
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -72,13 +61,7 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
     const tagsToApply: Partial<ID3Tags> = {};
     for (const key of editableTagKeys) {
         if (fieldsToUpdate[key]) {
-            // Fix: Help TypeScript understand the type relationship by splitting the assignment
-            // based on the key, avoiding the "not assignable to never" error.
-            if (key === 'bitrate' || key === 'sampleRate') {
-                tagsToApply[key] = tags[key] || undefined;
-            } else {
-                tagsToApply[key] = tags[key] || '';
-            }
+            tagsToApply[key] = tags[key] || '';
         }
     }
     onSave(tagsToApply);
@@ -92,9 +75,7 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
       year: 'Rok',
       genre: 'Gatunek',
       mood: 'Nastrój',
-      comments: 'Komentarze',
-      bitrate: 'Bitrate (kbps)',
-      sampleRate: 'Sample Rate (Hz)',
+      comments: 'Komentarze'
   };
 
   return (
@@ -127,7 +108,7 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
                     />
                  ) : (
                     <input
-                      type={key === 'bitrate' || key === 'sampleRate' ? 'number' : 'text'}
+                      type="text"
                       id={key}
                       name={key}
                       value={tags[key] || ''}

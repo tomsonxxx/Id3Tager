@@ -8,9 +8,9 @@ interface TagPreviewTooltipProps {
   fetchedTags?: ID3Tags;
 }
 
-const TagDetailLine: React.FC<{ label: string; value?: string | number }> = ({ label, value }) => (
-  <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={String(value)}>
-    <span className="font-semibold text-slate-600 dark:text-slate-300">{label}:</span> {value ?? 'Brak'}
+const TagDetailLine: React.FC<{ label: string; value?: string }> = ({ label, value }) => (
+  <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={value}>
+    <span className="font-semibold text-slate-600 dark:text-slate-300">{label}:</span> {value || 'Brak'}
   </p>
 );
 
@@ -24,8 +24,6 @@ const TagColumn: React.FC<{ title: string; tags: ID3Tags }> = ({ title, tags }) 
       <TagDetailLine label="Rok" value={tags.year} />
       <TagDetailLine label="Gatunek" value={tags.genre} />
       <TagDetailLine label="Nastrój" value={tags.mood} />
-      <TagDetailLine label="Bitrate" value={tags.bitrate ? `${tags.bitrate} kbps` : undefined} />
-      <TagDetailLine label="Sample Rate" value={tags.sampleRate ? `${tags.sampleRate} Hz` : undefined} />
       <TagDetailLine label="Komentarz" value={tags.comments} />
     </div>
   </div>
@@ -60,8 +58,6 @@ const TagPreviewTooltip: React.FC<TagPreviewTooltipProps> = ({ originalTags, fet
           </div>
            <div className="mt-2 space-y-1">
              <TagDetailLine label="Nastrój" value={fetchedTags.mood} />
-             <TagDetailLine label="Bitrate" value={fetchedTags.bitrate ? `${fetchedTags.bitrate} kbps` : undefined} />
-             <TagDetailLine label="Sample Rate" value={fetchedTags.sampleRate ? `${fetchedTags.sampleRate} Hz` : undefined} />
              <TagDetailLine label="Komentarz" value={fetchedTags.comments} />
            </div>
         </div>
