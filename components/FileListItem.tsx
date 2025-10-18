@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import { AudioFile, ProcessingState } from '../types';
 import { StatusIcon } from './StatusIcon';
 import AlbumCover from './AlbumCover';
@@ -26,31 +26,10 @@ const FileListItem: React.FC<FileListItemProps> = ({
   const displayTags = file.fetchedTags || file.originalTags;
   const displayName = file.newName || file.file.name;
   const hasNewName = !!file.newName && file.newName !== file.file.name;
-
-  const [animationClass, setAnimationClass] = useState('');
-  const prevStateRef = useRef<ProcessingState>();
-
-  useEffect(() => {
-    const prevState = prevStateRef.current;
-    const currentState = file.state;
-
-    if (prevState === ProcessingState.PROCESSING && currentState === ProcessingState.SUCCESS) {
-      setAnimationClass('animate-flash-success');
-      const timer = setTimeout(() => setAnimationClass(''), 700); // Duration of the animation
-      return () => clearTimeout(timer);
-    }
-    
-    if (prevState === ProcessingState.PROCESSING && currentState === ProcessingState.ERROR) {
-      setAnimationClass('animate-flash-error');
-      const timer = setTimeout(() => setAnimationClass(''), 700); // Duration of the animation
-      return () => clearTimeout(timer);
-    }
-
-    prevStateRef.current = currentState;
-  }, [file.state]);
+  const isWritable = file.file.type === 'audio/mpeg' || file.file.type === 'audio/mp3';
 
   return (
-    <div className={`flex items-center p-3 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-all duration-200 border ${file.isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/50' : 'border-transparent dark:border-slate-700'} ${animationClass}`}>
+    <div className={`flex items-center p-3 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-all duration-200 border ${file.isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/50' : 'border-transparent dark:border-slate-700'}`}>
       <input 
         type="checkbox"
         checked={!!file.isSelected}
@@ -69,6 +48,11 @@ const FileListItem: React.FC<FileListItemProps> = ({
         <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={file.file.name}>
           {hasNewName ? `Oryginalnie: ${file.file.name}` : `Artysta: ${displayTags?.artist || 'Brak'}`}
         </p>
+         {!isWritable && hasBeenProcessed && file.state !== ProcessingState.ERROR && (
+            <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 truncate" title="Zapis tagów jest obsługiwany tylko dla plików MP3.">
+                Format nieobsługiwany do zapisu
+            </p>
+        )}
         {file.state === ProcessingState.ERROR && (
           <p className="text-xs text-red-500 dark:text-red-400 mt-1 truncate" title={file.errorMessage}>
             {file.errorMessage}

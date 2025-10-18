@@ -74,7 +74,7 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
     
     // js-id3-writer only supports MP3 files.
     if (file.type !== 'audio/mpeg' && file.type !== 'audio/mp3') {
-        throw new Error(`Zapis tagów dla typu pliku "${file.type}" nie jest obsługiwany. Obecnie wspierany jest tylko format MP3.`);
+        throw new Error(`Zapis tagów jest możliwy tylko dla plików MP3. Ten plik ma format '${file.type}'.`);
     }
 
     const buffer = await file.arrayBuffer();

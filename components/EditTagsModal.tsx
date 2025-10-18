@@ -33,10 +33,10 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
   }, [isOpen, file]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
+    const { name, value, type } = e.target;
     setTags((prevTags) => ({
       ...prevTags,
-      [name]: value,
+      [name]: type === 'number' ? (value ? Number(value) : undefined) : value,
     }));
   };
 
@@ -68,7 +68,7 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const tagFields: (keyof Omit<ID3Tags, 'albumCoverUrl' | 'comments'>)[] = ['title', 'artist', 'album', 'year', 'genre', 'mood'];
+  const tagFields: (keyof Omit<ID3Tags, 'albumCoverUrl' | 'comments'>)[] = ['title', 'artist', 'album', 'year', 'genre', 'mood', 'bitrate', 'sampleRate'];
   const tagLabels: Record<string, string> = {
     title: 'Tytuł',
     artist: 'Wykonawca',
@@ -76,7 +76,9 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
     year: 'Rok',
     genre: 'Gatunek',
     mood: 'Nastrój',
-    comments: 'Komentarze'
+    comments: 'Komentarze',
+    bitrate: 'Bitrate (kbps)',
+    sampleRate: 'Sample Rate (Hz)',
   };
 
   return (
@@ -145,7 +147,7 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
                     {tagLabels[key]}
                   </label>
                   <input
-                    type="text"
+                    type={key === 'bitrate' || key === 'sampleRate' ? 'number' : 'text'}
                     name={key}
                     id={key}
                     value={tags[key] || ''}
