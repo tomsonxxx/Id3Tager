@@ -22,6 +22,10 @@ export const readID3Tags = (file: File): Promise<ID3Tags> => {
         if (tag.tags.year) tags.year = tag.tags.year;
         if (tag.tags.genre) tags.genre = tag.tags.genre;
         
+        // Custom frames might not be parsed by default, but we check common ones
+        if (tag.tags.TMOO) tags.mood = tag.tags.TMOO.data;
+        if (tag.tags.COMM) tags.comments = tag.tags.COMM.data.text;
+        
         if (tag.tags.picture) {
             const { data, format } = tag.tags.picture;
             let base64String = "";
@@ -54,6 +58,15 @@ const dataURLToArrayBuffer = (dataURL: string) => {
   return bytes.buffer;
 };
 
+// Helper function to proxy image URLs to avoid CORS issues
+export const proxyImageUrl = (url: string | undefined): string | undefined => {
+    if (!url || url.startsWith('data:')) {
+        return url;
+    }
+    // Using a reliable CORS proxy.
+    return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+};
+
 export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => {
     if (typeof ID3Writer === 'undefined') {
         throw new Error("Biblioteka do zapisu tagów (ID3Writer) nie została załadowana.");
@@ -72,6 +85,8 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
     if (tags.album) writer.setFrame('TALB', tags.album);
     if (tags.year) writer.setFrame('TYER', tags.year);
     if (tags.genre) writer.setFrame('TCON', [tags.genre]);
+    if (tags.mood) writer.setFrame('TMOO', tags.mood);
+    if (tags.comments) writer.setFrame('COMM', { description: 'Comment', text: tags.comments });
     
     // Handle album cover
     if (tags.albumCoverUrl) {
@@ -80,10 +95,8 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
             if (tags.albumCoverUrl.startsWith('data:')) {
                 coverBuffer = dataURLToArrayBuffer(tags.albumCoverUrl);
             } else {
-                // Using a CORS proxy for external URLs. This is unreliable and for demonstration only.
-                // A proper implementation would use a server-side proxy.
-                const proxyUrl = 'https://api.allorigins.win/raw?url=';
-                const response = await fetch(proxyUrl + encodeURIComponent(tags.albumCoverUrl));
+                const proxiedUrl = proxyImageUrl(tags.albumCoverUrl);
+                const response = await fetch(proxiedUrl!);
                 if (!response.ok) {
                     throw new Error(`Nie udało się pobrać okładki: ${response.statusText}`);
                 }

@@ -32,7 +32,7 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
     }
   }, [isOpen, file]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setTags((prevTags) => ({
       ...prevTags,
@@ -68,18 +68,20 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const tagFields: (keyof Omit<ID3Tags, 'albumCoverUrl'>)[] = ['title', 'artist', 'album', 'year', 'genre'];
+  const tagFields: (keyof Omit<ID3Tags, 'albumCoverUrl' | 'comments'>)[] = ['title', 'artist', 'album', 'year', 'genre', 'mood'];
   const tagLabels: Record<string, string> = {
     title: 'Tytuł',
     artist: 'Wykonawca',
     album: 'Album',
     year: 'Rok',
     genre: 'Gatunek',
+    mood: 'Nastrój',
+    comments: 'Komentarze'
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Edytuj Tagi</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 truncate" title={file.file.name}>
           Oryginalna nazwa: {file.file.name}
@@ -113,7 +115,7 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
 
         {/* Tags Form */}
         <div className="flex flex-col md:flex-row gap-6">
-          <div className="md:w-1/3 flex flex-col items-center">
+          <div className="md:w-1/4 flex flex-col items-center">
             <div className="relative group cursor-pointer" onClick={() => tags.albumCoverUrl && onZoomCover(tags.albumCoverUrl)}>
                 <AlbumCover tags={tags} className="w-48 h-48" />
                 {tags.albumCoverUrl && (
@@ -135,23 +137,39 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
                placeholder="URL do obrazka"
              />
           </div>
-          <div className="md:w-2/3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {tagFields.map((key) => (
-              <div key={key} className={key === 'title' || key === 'album' ? 'sm:col-span-2' : ''}>
-                <label htmlFor={key} className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {tagLabels[key]}
+          <div className="md:w-3/4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {tagFields.map((key) => (
+                <div key={key} className={key === 'title' || key === 'album' ? 'sm:col-span-2' : ''}>
+                  <label htmlFor={key} className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    {tagLabels[key]}
+                  </label>
+                  <input
+                    type="text"
+                    name={key}
+                    id={key}
+                    value={tags[key] || ''}
+                    onChange={handleChange}
+                    className="mt-1 block w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                    placeholder={`Wprowadź ${tagLabels[key]?.toLowerCase()}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-4">
+               <label htmlFor="comments" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {tagLabels['comments']}
                 </label>
-                <input
-                  type="text"
-                  name={key}
-                  id={key}
-                  value={tags[key] || ''}
+                <textarea
+                  name="comments"
+                  id="comments"
+                  value={tags.comments || ''}
                   onChange={handleChange}
+                  rows={3}
                   className="mt-1 block w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-indigo-500 sm:text-sm"
-                  placeholder={`Wprowadź ${tagLabels[key]?.toLowerCase()}`}
+                  placeholder="Wprowadź komentarze lub ciekawostki..."
                 />
-              </div>
-            ))}
+            </div>
           </div>
         </div>
 

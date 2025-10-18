@@ -9,8 +9,8 @@ interface BatchEditModalProps {
   files: AudioFile[];
 }
 
-type EditableTags = Pick<ID3Tags, 'artist' | 'album' | 'year' | 'genre'>;
-const editableTagKeys: (keyof EditableTags)[] = ['artist', 'album', 'year', 'genre'];
+type EditableTags = Pick<ID3Tags, 'artist' | 'album' | 'year' | 'genre' | 'mood' | 'comments'>;
+const editableTagKeys: (keyof EditableTags)[] = ['artist', 'album', 'year', 'genre', 'mood', 'comments'];
 
 const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave, files }) => {
   const [tags, setTags] = useState<Partial<EditableTags>>({});
@@ -19,6 +19,8 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
     album: false,
     year: false,
     genre: false,
+    mood: false,
+    comments: false,
   });
 
   const commonTags = useMemo<Partial<EditableTags>>(() => {
@@ -36,10 +38,16 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
   }, [files]);
 
   useEffect(() => {
-    setTags(commonTags);
-  }, [commonTags]);
+    if(isOpen) {
+        setTags(commonTags);
+        // Reset checkboxes on open
+        setFieldsToUpdate({
+            artist: false, album: false, year: false, genre: false, mood: false, comments: false
+        });
+    }
+  }, [isOpen, commonTags]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setTags(prev => ({ ...prev, [name]: value }));
   };
@@ -65,36 +73,51 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
       artist: 'Wykonawca',
       album: 'Album',
       year: 'Rok',
-      genre: 'Gatunek'
+      genre: 'Gatunek',
+      mood: 'Nastrój',
+      comments: 'Komentarze'
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-lg mx-4 transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-lg mx-4 transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Edycja masowa ({files.length} plików)</h2>
         <div className="space-y-4">
           {editableTagKeys.map(key => (
-            <div key={key} className="flex items-center space-x-3">
+            <div key={key} className="flex items-start space-x-3">
               <input 
                 type="checkbox"
                 id={`update-${key}`}
                 name={key}
                 checked={fieldsToUpdate[key]}
                 onChange={handleCheckboxChange}
-                className="h-5 w-5 rounded bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500"
+                className="h-5 w-5 rounded bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 mt-7"
               />
               <div className="flex-grow">
                  <label htmlFor={key} className="block text-sm font-medium text-slate-500 dark:text-slate-400 capitalize">{tagLabels[key]}</label>
-                 <input
-                  type="text"
-                  id={key}
-                  name={key}
-                  value={tags[key] || ''}
-                  onChange={handleChange}
-                  placeholder={commonTags[key] === undefined ? '(różne wartości)' : ''}
-                  className="mt-1 block w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
-                  disabled={!fieldsToUpdate[key]}
-                />
+                 {key === 'comments' ? (
+                      <textarea
+                        id={key}
+                        name={key}
+                        value={tags[key] || ''}
+                        onChange={handleChange}
+                        placeholder={commonTags[key] === undefined ? '(różne wartości)' : ''}
+                        className="mt-1 block w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
+                        disabled={!fieldsToUpdate[key]}
+                        rows={2}
+                    />
+                 ) : (
+                    <input
+                      type="text"
+                      id={key}
+                      name={key}
+                      value={tags[key] || ''}
+                      onChange={handleChange}
+                      placeholder={commonTags[key] === undefined ? '(różne wartości)' : ''}
+                      className="mt-1 block w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
+                      disabled={!fieldsToUpdate[key]}
+                    />
+                 )}
               </div>
             </div>
           ))}

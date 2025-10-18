@@ -1,20 +1,66 @@
 // Fix: Provide full implementation for the TagPreviewTooltip component.
 import React from 'react';
 import { ID3Tags } from '../types';
+import AlbumCover from './AlbumCover';
 
 interface TagPreviewTooltipProps {
-  tags: ID3Tags;
+  originalTags: ID3Tags;
+  fetchedTags?: ID3Tags;
 }
 
-const TagPreviewTooltip: React.FC<TagPreviewTooltipProps> = ({ tags }) => {
+const TagDetailLine: React.FC<{ label: string; value?: string }> = ({ label, value }) => (
+  <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={value}>
+    <span className="font-semibold text-slate-600 dark:text-slate-300">{label}:</span> {value || 'Brak'}
+  </p>
+);
+
+const TagColumn: React.FC<{ title: string; tags: ID3Tags }> = ({ title, tags }) => (
+  <div>
+    <h5 className="text-sm font-bold text-slate-900 dark:text-white mb-2 pb-1 border-b border-slate-200 dark:border-slate-700">{title}</h5>
+    <div className="space-y-1">
+      <TagDetailLine label="Tytuł" value={tags.title} />
+      <TagDetailLine label="Artysta" value={tags.artist} />
+      <TagDetailLine label="Album" value={tags.album} />
+      <TagDetailLine label="Rok" value={tags.year} />
+      <TagDetailLine label="Gatunek" value={tags.genre} />
+      <TagDetailLine label="Nastrój" value={tags.mood} />
+      <TagDetailLine label="Komentarz" value={tags.comments} />
+    </div>
+  </div>
+);
+
+
+const TagPreviewTooltip: React.FC<TagPreviewTooltipProps> = ({ originalTags, fetchedTags }) => {
+  if (!fetchedTags) return null;
+
   return (
-    <div className="absolute z-10 w-72 p-3 -mt-20 ml-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-      <h4 className="font-bold text-slate-900 dark:text-white truncate">{tags.title || 'Brak tytułu'}</h4>
-      <p className="text-sm text-slate-600 dark:text-slate-300 truncate">{tags.artist || 'Brak wykonawcy'}</p>
-      <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{tags.album || 'Brak albumu'}</p>
-      <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500 mt-2">
-        <span>{tags.year || '----'}</span>
-        <span>{tags.genre || 'Brak gatunku'}</span>
+    <div className="absolute z-10 w-[40rem] max-w-2xl p-4 -mt-24 ml-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+      <div className="flex space-x-4">
+        {/* Original Tags Column */}
+        <div className="w-1/2">
+          <TagColumn title="Oryginalne Tagi" tags={originalTags} />
+        </div>
+        
+        <div className="w-px bg-slate-200 dark:bg-slate-700"></div>
+
+        {/* Fetched Tags Column */}
+        <div className="w-1/2">
+          <h5 className="text-sm font-bold text-slate-900 dark:text-white mb-2 pb-1 border-b border-slate-200 dark:border-slate-700">Zaktualizowane Tagi</h5>
+          <div className="flex space-x-3">
+             <AlbumCover tags={fetchedTags} className="w-24 h-24 flex-shrink-0" />
+             <div className="space-y-1 overflow-hidden flex-grow">
+                <TagDetailLine label="Tytuł" value={fetchedTags.title} />
+                <TagDetailLine label="Artysta" value={fetchedTags.artist} />
+                <TagDetailLine label="Album" value={fetchedTags.album} />
+                <TagDetailLine label="Rok" value={fetchedTags.year} />
+                <TagDetailLine label="Gatunek" value={fetchedTags.genre} />
+             </div>
+          </div>
+           <div className="mt-2 space-y-1">
+             <TagDetailLine label="Nastrój" value={fetchedTags.mood} />
+             <TagDetailLine label="Komentarz" value={fetchedTags.comments} />
+           </div>
+        </div>
       </div>
     </div>
   );
