@@ -10,7 +10,7 @@ interface RenameModalProps {
   exampleFile?: AudioFile;
 }
 
-const placeholders: (keyof ID3Tags)[] = ['artist', 'title', 'album', 'year', 'genre'];
+const placeholders: (keyof Omit<ID3Tags, 'albumCoverUrl' | 'mood' | 'comments'>)[] = ['artist', 'title', 'album', 'year', 'genre'];
 
 const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, currentPattern, exampleFile }) => {
   const [pattern, setPattern] = useState(currentPattern);
@@ -24,6 +24,7 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
 
   const handleSave = () => {
     onSave(pattern);
+    onClose();
   };
 
   const insertPlaceholder = (placeholder: string) => {
@@ -46,7 +47,7 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
 
   if (!isOpen) return null;
 
-  const exampleTags: ID3Tags = exampleFile?.fetchedTags || {
+  const exampleTags: ID3Tags = exampleFile?.fetchedTags || exampleFile?.originalTags || {
       artist: 'Przykładowy Artysta',
       title: 'Tytuł Utworu',
       album: 'Nazwa Albumu',
