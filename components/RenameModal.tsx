@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AudioFile, ID3Tags } from '../types';
 import { generatePath } from '../utils/filenameUtils';
 
@@ -35,7 +37,15 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
     }
   }, [isOpen, currentPattern]);
 
+  // Save pattern to localStorage in real-time as the user types
+  useEffect(() => {
+    if (isOpen) {
+      localStorage.setItem('renamePattern', pattern);
+    }
+  }, [pattern, isOpen]);
+
   const handleSave = () => {
+    // The onSave prop now triggers the confirmation modal in App.tsx
     onSave(pattern);
   };
 
@@ -56,10 +66,23 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
       input.setSelectionRange(start + text.length, start + text.length);
     }, 0);
   };
+  
+  const hasFilesForPreview = files && files.length > 0;
+  
+  const previews = useMemo(() => {
+    if (!hasFilesForPreview) return [];
+    return files.map(file => {
+        const previewName = generatePath(pattern, file.fetchedTags || file.originalTags, file.file.name);
+        return {
+            id: file.id,
+            originalName: file.webkitRelativePath || file.file.name, // Prefer relative path for preview
+            newName: previewName,
+            isTooLong: previewName.length > 255
+        };
+    });
+  }, [pattern, files, hasFilesForPreview]);
 
   if (!isOpen) return null;
-
-  const hasFilesForPreview = files && files.length > 0;
 
   const genericExampleTags: ID3Tags = {
       artist: 'Przykładowy Artysta',
@@ -118,23 +141,21 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
              <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-900 rounded-md max-h-64 overflow-y-auto">
                 <p className="text-sm font-medium text-slate-700 dark:text-slate-300 sticky top-0 bg-slate-100 dark:bg-slate-900 pb-2">Podgląd ({files.length} {files.length === 1 ? 'plik' : files.length > 1 && files.length < 5 ? 'pliki' : 'plików'}):</p>
                 <ul className="text-xs font-mono mt-1 space-y-2">
-                    {files.map(file => {
-                        const preview = generatePath(pattern, file.fetchedTags || file.originalTags, file.file.name);
-                        const isTooLong = preview.length > 255;
+                    {previews.map(previewItem => {
                         return (
-                            <li key={file.id} className="grid grid-cols-[1fr,auto,1fr] gap-2 items-center">
-                                <span className="truncate text-slate-500 dark:text-slate-400 text-right" title={file.file.name}>{file.file.name}</span>
+                            <li key={previewItem.id} className="grid grid-cols-[1fr,auto,1fr] gap-2 items-center">
+                                <span className="truncate text-slate-500 dark:text-slate-400 text-right" title={previewItem.originalName}>{previewItem.originalName}</span>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 dark:text-slate-500" viewBox="0 0 20 20" fill="currentColor">
                                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
                                 </svg>
-                                <span className={`flex items-center truncate ${isTooLong ? 'text-amber-600 dark:text-amber-500' : 'text-indigo-600 dark:text-indigo-400'}`} title={preview}>
-                                    {isTooLong && (
+                                <span className={`flex items-center truncate ${previewItem.isTooLong ? 'text-amber-600 dark:text-amber-500' : 'text-indigo-600 dark:text-indigo-400'}`} title={previewItem.newName}>
+                                    {previewItem.isTooLong && (
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
                                             <title>Wygenerowana ścieżka jest bardzo długa (&gt;255 znaków) i może powodować problemy w niektórych systemach plików.</title>
                                             <path fillRule="evenodd" d="M8.257 3.099c.636-1.21 2.852-1.21 3.488 0l6.233 11.896c.64 1.223-.453 2.755-1.744 2.755H3.768c-1.291 0-2.384-1.532-1.744-2.755L8.257 3.099zM10 13a1 1 0 110-2 1 1 0 010 2zm-1-4a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clipRule="evenodd" />
                                         </svg>
                                     )}
-                                    <span className="truncate">{preview}</span>
+                                    <span className="truncate">{previewItem.newName}</span>
                                 </span>
                             </li>
                         )
@@ -153,7 +174,7 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
 
         <div className="flex justify-end space-x-4 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600">Anuluj</button>
-          <button onClick={handleSave} className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500">Zapisz szablon</button>
+          <button onClick={handleSave} className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500">Zastosuj</button>
         </div>
       </div>
        <style>{`.animate-fade-in-scale { animation: fade-in-scale 0.2s ease-out forwards; } @keyframes fade-in-scale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>

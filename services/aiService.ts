@@ -140,10 +140,30 @@ export const fetchTagsForFile = async (
         }
         throw new Error("Wystąpił nieznany błąd z Gemini API.");
     }
-  } else {
-    console.warn(`${provider} provider is not implemented. Returning original tags.`);
-    return Promise.resolve(originalTags);
   }
+  
+  // Handle other providers
+  if (provider === 'grok') {
+    if (!apiKeys.grok) {
+      throw new Error("Klucz API dla Grok nie został podany w ustawieniach.");
+    }
+    // Placeholder for actual Grok API call
+    console.warn(`Dostawca Grok nie jest jeszcze zaimplementowany. Użycie klucza API zostało pominięte.`);
+    return originalTags;
+  }
+
+  if (provider === 'openai') {
+    if (!apiKeys.openai) {
+      throw new Error("Klucz API dla OpenAI nie został podany w ustawieniach.");
+    }
+    // Placeholder for actual OpenAI API call
+    console.warn(`Dostawca OpenAI nie jest jeszcze zaimplementowany. Użycie klucza API zostało pominięte.`);
+    return originalTags;
+  }
+  
+  // Fallback for an unknown provider
+  console.warn(`Nieznany dostawca ${provider}. Zwracam oryginalne tagi.`);
+  return originalTags;
 };
 
 export interface BatchResult extends ID3Tags {
@@ -155,84 +175,100 @@ export const fetchTagsForBatch = async (
     provider: AIProvider,
     apiKeys: ApiKeys
 ): Promise<BatchResult[]> => {
-    if (provider !== 'gemini') {
-        throw new Error(`Dostawca ${provider} nie jest obsługiwany w trybie wsadowym.`);
-    }
-     if (!process.env.API_KEY) {
-      throw new Error("Klucz API Gemini nie jest skonfigurowany w zmiennych środowiskowych (API_KEY).");
-    }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (provider === 'gemini') {
+        if (!process.env.API_KEY) {
+            throw new Error("Klucz API Gemini nie jest skonfigurowany w zmiennych środowiskowych (API_KEY).");
+        }
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    const fileList = files.map(f => JSON.stringify({ filename: f.file.name, existingTags: f.originalTags })).join(',\n');
-    const prompt = `You are a music archivist. I have a batch of audio files that may be from the same album or artist. Please identify each track based on its filename and existing tags, and provide its full ID3 tags. Pay close attention to filenames that suggest they are from the same album or artist (e.g., sequential track numbers like '01-song.mp3', '02-another.mp3'). For these related files, ensure the 'artist', 'album', and 'albumArtist' tags are identical to maintain consistency. Here is the list of files:\n\n[${fileList}]\n\nReturn your response as a valid JSON array. Each object in the array must correspond to one of the input files and contain the 'originalFilename' I provided, along with all the identified tags from the schema.`;
+        const fileList = files.map(f => JSON.stringify({ filename: f.file.name, existingTags: f.originalTags })).join(',\n');
+        const prompt = `You are a music archivist. I have a batch of audio files that may be from the same album or artist. Please identify each track based on its filename and existing tags, and provide its full ID3 tags. Pay close attention to filenames that suggest they are from the same album or artist (e.g., sequential track numbers like '01-song.mp3', '02-another.mp3'). For these related files, ensure the 'artist', 'album', and 'albumArtist' tags are identical to maintain consistency. Here is the list of files:\n\n[${fileList}]\n\nReturn your response as a valid JSON array. Each object in the array must correspond to one of the input files and contain the 'originalFilename' I provided, along with all the identified tags from the schema.`;
 
-    try {
-        const response = await callGeminiWithRetry(() =>
-            ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
-                config: {
-                    systemInstruction: getSystemInstruction(),
-                    responseMimeType: "application/json",
-                    responseSchema: batchFileResponseSchema,
-                },
-            })
-        );
-        
-        const text = response.text.trim();
-        let parsedResponse: any[];
         try {
-            parsedResponse = JSON.parse(text);
-        } catch (e) {
-            console.error("Failed to parse JSON from Gemini batch response:", text, e);
-            throw new Error("Otrzymano nieprawidłowy format JSON z AI.");
-        }
-        
-        if (!Array.isArray(parsedResponse)) {
-             console.error("Batch AI response is not a valid JSON array.", parsedResponse);
-             throw new Error("Odpowiedź AI nie jest w formacie tablicy JSON.");
-        }
-        
-        const validatedResults: BatchResult[] = [];
-        const requestedFilenames = new Set(files.map(f => f.file.name));
-        const processedFilenames = new Set<string>();
-    
-        for (const item of parsedResponse) {
+            const response = await callGeminiWithRetry(() =>
+                ai.models.generateContent({
+                    model: "gemini-2.5-flash",
+                    contents: prompt,
+                    config: {
+                        systemInstruction: getSystemInstruction(),
+                        responseMimeType: "application/json",
+                        responseSchema: batchFileResponseSchema,
+                    },
+                })
+            );
+            
+            const text = response.text.trim();
+            let parsedResponse: any[];
             try {
-                if (typeof item !== 'object' || item === null) {
-                    console.warn("Skipping invalid item in batch response (not an object):", item);
-                    continue;
-                }
-                if (!item.originalFilename || typeof item.originalFilename !== 'string') {
-                    console.warn("Skipping item in batch response with missing or invalid 'originalFilename':", item);
-                    continue;
-                }
-                if (processedFilenames.has(item.originalFilename)) {
-                    console.warn(`Skipping duplicate entry in batch response for filename: ${item.originalFilename}`);
-                    continue;
-                }
-                if (!requestedFilenames.has(item.originalFilename)) {
-                    console.warn(`Skipping item in batch response with an unexpected 'originalFilename' that was not in the request: ${item.originalFilename}`);
-                    continue;
-                }
-                validatedResults.push(item as BatchResult);
-                processedFilenames.add(item.originalFilename);
+                parsedResponse = JSON.parse(text);
             } catch (e) {
-                console.error("Error processing a single item in batch response. Skipping.", { item, error: e });
+                console.error("Failed to parse JSON from Gemini batch response:", text, e);
+                throw new Error("Otrzymano nieprawidłowy format JSON z AI.");
             }
-        }
-    
-        if(validatedResults.length < files.length) {
-            console.warn(`Batch response contained ${validatedResults.length} valid items, but ${files.length} files were requested. Some files may not be updated.`);
-        }
+            
+            if (!Array.isArray(parsedResponse)) {
+                 console.error("Batch AI response is not a valid JSON array.", parsedResponse);
+                 throw new Error("Odpowiedź AI nie jest w formacie tablicy JSON.");
+            }
+            
+            const validatedResults: BatchResult[] = [];
+            const requestedFilenames = new Set(files.map(f => f.file.name));
+            const processedFilenames = new Set<string>();
         
-        return validatedResults;
+            for (const item of parsedResponse) {
+                try {
+                    if (typeof item !== 'object' || item === null) {
+                        console.warn("Skipping invalid item in batch response (not an object):", item);
+                        continue;
+                    }
+                    if (!item.originalFilename || typeof item.originalFilename !== 'string') {
+                        console.warn("Skipping item in batch response with missing or invalid 'originalFilename':", item);
+                        continue;
+                    }
+                    if (processedFilenames.has(item.originalFilename)) {
+                        console.warn(`Skipping duplicate entry in batch response for filename: ${item.originalFilename}`);
+                        continue;
+                    }
+                    if (!requestedFilenames.has(item.originalFilename)) {
+                        console.warn(`Skipping item in batch response with an unexpected 'originalFilename' that was not in the request: ${item.originalFilename}`);
+                        continue;
+                    }
+                    validatedResults.push(item as BatchResult);
+                    processedFilenames.add(item.originalFilename);
+                } catch (e) {
+                    console.error("Error processing a single item in batch response. Skipping.", { item, error: e });
+                }
+            }
+        
+            if(validatedResults.length < files.length) {
+                console.warn(`Batch response contained ${validatedResults.length} valid items, but ${files.length} files were requested. Some files may not be updated.`);
+            }
+            
+            return validatedResults;
 
-    } catch (error) {
-        console.error("Błąd podczas pobierania tagów wsadowo z Gemini API:", error);
-        if (error instanceof Error) {
-           throw new Error(`Błąd wsadowy Gemini API: ${error.message}`);
+        } catch (error) {
+            console.error("Błąd podczas pobierania tagów wsadowo z Gemini API:", error);
+            if (error instanceof Error) {
+               throw new Error(`Błąd wsadowy Gemini API: ${error.message}`);
+            }
+            throw new Error("Wystąpił nieznany błąd wsadowy z Gemini API.");
         }
-        throw new Error("Wystąpił nieznany błąd wsadowy z Gemini API.");
     }
+
+    // Handle other providers for batch mode
+    if (provider === 'grok') {
+        if (!apiKeys.grok) {
+          throw new Error("Klucz API dla Grok nie został podany w ustawieniach.");
+        }
+        throw new Error("Tryb wsadowy nie jest zaimplementowany dla dostawcy Grok.");
+    }
+
+    if (provider === 'openai') {
+        if (!apiKeys.openai) {
+          throw new Error("Klucz API dla OpenAI nie został podany w ustawieniach.");
+        }
+        throw new Error("Tryb wsadowy nie jest zaimplementowany dla dostawcy OpenAI.");
+    }
+
+    throw new Error(`Nieznany dostawca ${provider} nie jest obsługiwany w trybie wsadowym.`);
 };

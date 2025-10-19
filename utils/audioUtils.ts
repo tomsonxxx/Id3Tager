@@ -1,10 +1,31 @@
+
 // Fix: Provide full implementation for audio utility functions.
-import { ID3Tags, AudioFile } from '../types';
+import { ID3Tags, AudioFile, ProcessingState } from '../types';
 
 // Assume jsmediatags is loaded globally via a <script> tag
 declare const jsmediatags: any;
-// Assume ID3Writer is loaded globally via a <script> tag
+// Assume ID3Writer is loaded globally via a <script> tag (for MP3)
 declare const ID3Writer: any;
+// Assume mp4TagWriter is loaded globally via a <script> tag (for M4A/MP4)
+declare const mp4TagWriter: any;
+
+
+/**
+ * Checks if writing tags is supported for a given file type.
+ * MP3 support is provided by 'js-id3-writer'.
+ * M4A/MP4 support is provided by 'mp4-tag-writer'.
+ * @param file The file to check.
+ * @returns True if tag writing is supported, false otherwise.
+ */
+export const isTagWritingSupported = (file: File): boolean => {
+    const supportedMimeTypes = [
+        'audio/mpeg', // MP3
+        'audio/mp3',
+        'audio/mp4',  // M4A / MP4
+        'audio/x-m4a'
+    ];
+    return supportedMimeTypes.includes(file.type);
+};
 
 export const readID3Tags = (file: File): Promise<ID3Tags> => {
   return new Promise((resolve, reject) => {
@@ -16,7 +37,7 @@ export const readID3Tags = (file: File): Promise<ID3Tags> => {
     jsmediatags.read(file, {
       onSuccess: (tag: any) => {
         // jsmediatags attempts to unify tags, so we can check for common properties
-        // regardless of the underlying format (ID3, Vorbis comment, etc.)
+        // regardless of the underlying format (ID3, Vorbis comment, MP4 atoms, etc.)
         const tags: ID3Tags = {};
         const tagData = tag.tags;
 
@@ -60,7 +81,9 @@ export const readID3Tags = (file: File): Promise<ID3Tags> => {
         resolve(tags);
       },
       onError: (error: any) => {
-        console.error(`Błąd podczas odczytu tagów z pliku ${file.name}:`, error);
+        const errorType = error.type || 'Unknown';
+        const errorInfo = error.info || 'No additional info';
+        console.error(`Błąd podczas odczytu tagów z pliku ${file.name}: Typ błędu: ${errorType}, Info: ${errorInfo}`, error);
         // Resolve with empty tags on error to not block the flow
         resolve({});
       },
@@ -88,19 +111,18 @@ export const proxyImageUrl = (url: string | undefined): string | undefined => {
     return `https://corsproxy.io/?${encodeURIComponent(url)}`;
 };
 
-export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => {
-    if (typeof ID3Writer === 'undefined') {
-        throw new Error("Biblioteka do zapisu tagów (ID3Writer) nie została załadowana.");
-    }
-    
-    // js-id3-writer only supports MP3 files. This is a library limitation.
-    // This function should ONLY be called for MP3s.
-    if (file.type !== 'audio/mpeg' && file.type !== 'audio/mp3') {
-        throw new Error(`Zapis tagów jest możliwy tylko dla plików MP3. Ten plik ma format '${file.type}'.`);
-    }
 
-    const buffer = await file.arrayBuffer();
-    const writer = new ID3Writer(buffer);
+/**
+ * Applies tags to an MP3 file using ID3Writer.
+ * @param fileBuffer The ArrayBuffer of the MP3 file.
+ * @param tags The tags to apply.
+ * @returns An ArrayBuffer of the tagged MP3 file.
+ */
+const applyID3TagsToFile = async (fileBuffer: ArrayBuffer, tags: ID3Tags): Promise<ArrayBuffer> => {
+    if (typeof ID3Writer === 'undefined') {
+        throw new Error("Biblioteka do zapisu tagów MP3 (ID3Writer) nie została załadowana.");
+    }
+    const writer = new ID3Writer(fileBuffer);
 
     if (tags.title) writer.setFrame('TIT2', tags.title);
     if (tags.artist) writer.setFrame('TPE1', [tags.artist]);
@@ -139,7 +161,93 @@ export const applyID3Tags = async (file: File, tags: ID3Tags): Promise<Blob> => 
     }
 
     writer.addTag();
-    return writer.getBlob();
+    return writer.arrayBuffer;
+};
+
+/**
+ * Applies tags to an M4A/MP4 file using mp4-tag-writer.
+ * @param fileBuffer The ArrayBuffer of the M4A/MP4 file.
+ * @param tags The tags to apply.
+ * @returns An ArrayBuffer of the tagged M4A/MP4 file.
+ */
+const applyMP4TagsToFile = async (fileBuffer: ArrayBuffer, tags: ID3Tags): Promise<ArrayBuffer> => {
+    if (typeof mp4TagWriter === 'undefined') {
+        throw new Error("Biblioteka do zapisu tagów M4A/MP4 (mp4-tag-writer) nie została załadowana.");
+    }
+
+    const writer = mp4TagWriter.create(fileBuffer);
+    
+    // Map ID3Tags to MP4 atoms
+    if (tags.title) writer.setTag('©nam', tags.title);
+    if (tags.artist) writer.setTag('©ART', tags.artist);
+    if (tags.album) writer.setTag('©alb', tags.album);
+    if (tags.year) writer.setTag('©day', tags.year);
+    if (tags.genre) writer.setTag('©gen', tags.genre);
+    if (tags.comments) writer.setTag('©cmt', tags.comments);
+    if (tags.albumArtist) writer.setTag('aART', tags.albumArtist);
+    if (tags.composer) writer.setTag('©wrt', tags.composer);
+    if (tags.copyright) writer.setTag('cprt', tags.copyright);
+    if (tags.encodedBy) writer.setTag('©enc', tags.encodedBy);
+
+    // Track and Disc numbers are special cases
+    if (tags.trackNumber) {
+        const parts = String(tags.trackNumber).split('/');
+        const number = parseInt(parts[0], 10) || 0;
+        const total = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+        writer.setTag('trkn', [number, total]);
+    }
+     if (tags.discNumber) {
+        const parts = String(tags.discNumber).split('/');
+        const number = parseInt(parts[0], 10) || 0;
+        const total = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+        writer.setTag('disk', [number, total]);
+    }
+    
+    if (tags.albumCoverUrl) {
+         try {
+            let coverBuffer: ArrayBuffer;
+            if (tags.albumCoverUrl.startsWith('data:')) {
+                coverBuffer = dataURLToArrayBuffer(tags.albumCoverUrl);
+            } else {
+                const proxiedUrl = proxyImageUrl(tags.albumCoverUrl);
+                const response = await fetch(proxiedUrl!);
+                if (!response.ok) throw new Error(`Nie udało się pobrać okładki: ${response.statusText}`);
+                coverBuffer = await response.arrayBuffer();
+            }
+            writer.setTag('covr', coverBuffer);
+        } catch (error) {
+            console.warn(`Nie można przetworzyć okładki albumu dla M4A z URL: '${tags.albumCoverUrl}'. Błąd:`, error);
+        }
+    }
+
+    return writer.write();
+};
+
+/**
+ * Applies tags to an audio file, automatically detecting the format (MP3 or M4A/MP4).
+ * @param file The original audio file.
+ * @param tags The tags to apply.
+ * @returns A Blob of the new file with tags applied.
+ */
+export const applyTags = async (file: File, tags: ID3Tags): Promise<Blob> => {
+    if (!isTagWritingSupported(file)) {
+        throw new Error(`Zapis tagów dla typu pliku '${file.type}' nie jest obsługiwany. Aplikacja wspiera MP3 i M4A/MP4.\n\nOperacje takie jak zmiana nazwy pliku będą działać poprawnie. Do edycji tagów w innych formatach zalecamy użycie dedykowanego oprogramowania, np. MusicBrainz Picard.`);
+    }
+
+    const fileBuffer = await file.arrayBuffer();
+    let taggedBuffer: ArrayBuffer;
+
+    const fileType = file.type;
+    if (fileType === 'audio/mpeg' || fileType === 'audio/mp3') {
+        taggedBuffer = await applyID3TagsToFile(fileBuffer, tags);
+    } else if (fileType === 'audio/mp4' || fileType === 'audio/x-m4a') {
+        taggedBuffer = await applyMP4TagsToFile(fileBuffer, tags);
+    } else {
+        // This case should be caught by the initial check, but is here for safety.
+        throw new Error(`Nieoczekiwany typ pliku: ${fileType}`);
+    }
+    
+    return new Blob([taggedBuffer], { type: file.type });
 };
 
 
@@ -156,7 +264,7 @@ export const saveFileDirectly = async (
   audioFile: AudioFile
 ): Promise<{ success: boolean; updatedFile?: AudioFile; errorMessage?: string }> => {
   try {
-    const isMp3 = audioFile.file.type === 'audio/mpeg' || audioFile.file.type === 'audio/mp3';
+    const supportsTagWriting = isTagWritingSupported(audioFile.file);
     
     if (!audioFile.handle) {
       throw new Error("Brak referencji do pliku (file handle). Nie można zapisać, ponieważ plik nie pochodzi z trybu bezpośredniego dostępu.");
@@ -165,11 +273,11 @@ export const saveFileDirectly = async (
     let blobToSave: Blob = audioFile.file;
     let performedTagWrite = false;
 
-    // Intelligent Tag Writing: Only attempt to write ID3 tags for MP3 files.
-    // For other formats, we proceed with just the renaming/moving logic.
-    if (isMp3 && audioFile.fetchedTags) {
+    // Intelligent Tag Writing: Only attempt to write tags for supported files.
+    // For other formats (like FLAC), we proceed with just renaming/moving.
+    if (supportsTagWriting && audioFile.fetchedTags) {
       try {
-        blobToSave = await applyID3Tags(audioFile.file, audioFile.fetchedTags);
+        blobToSave = await applyTags(audioFile.file, audioFile.fetchedTags);
         performedTagWrite = true;
       } catch (tagError) {
         console.warn(`Nie udało się zapisać tagów dla ${audioFile.file.name}, plik zostanie tylko przemianowany. Błąd:`, tagError);
@@ -206,6 +314,8 @@ export const saveFileDirectly = async (
       await writable.close();
       
       // After successfully creating the new file, remove the old one.
+      // If removal fails, we log a warning but still consider the operation a success
+      // because the new file has been created.
       try {
         const originalPath = audioFile.webkitRelativePath;
         if (originalPath && originalPath !== newPath) {
@@ -221,11 +331,9 @@ export const saveFileDirectly = async (
              }
         }
       } catch(removeError: any) {
-         if (removeError.name === 'NotFoundError') {
-            console.info(`Oryginalny plik '${audioFile.webkitRelativePath}' nie został znaleziony do usunięcia (prawdopodobnie został już przeniesiony).`);
-         } else {
-            console.warn(`OPERACJA ZAKOŃCZONA SUKCESEM, ALE Z OSTRZEŻENIEM: Nowy plik został utworzony, ale wystąpił błąd podczas usuwania oryginalnego pliku '${audioFile.webkitRelativePath}'. Oryginalny plik mógł pozostać na dysku. Błąd:`, removeError);
-         }
+         // Log a warning but do not treat this as a failure of the entire save operation.
+         // The new file has been created successfully. The old file might just need manual cleanup.
+         console.warn(`Nowy plik został pomyślnie zapisany w '${newPath}', ale nie udało się usunąć oryginalnego pliku '${audioFile.webkitRelativePath}'. Może być konieczne ręczne usunięcie. Błąd:`, removeError);
       }
 
       const newFile = await newHandle.getFile();
@@ -240,7 +348,7 @@ export const saveFileDirectly = async (
         }
       };
     
-    // --- OVERWRITE IN PLACE (only tags changed for MP3, no rename) ---
+    // --- OVERWRITE IN PLACE (only tags changed for supported formats, no rename) ---
     } else if (performedTagWrite) {
       const writable = await audioFile.handle.createWritable({ keepExistingData: false });
       await writable.write(blobToSave);

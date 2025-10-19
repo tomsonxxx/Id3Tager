@@ -8,8 +8,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Biblioteka do odczytu tagów ID3 -->
     <script src="https://cdn.jsdelivr.net/npm/jsmediatags@3.9.7/dist/jsmediatags.min.js"></script>
-    <!-- Biblioteka do zapisu tagów ID3 -->
-    <script src="https://cdn.jsdelivr.net/npm/browser-id3-writer@4.4.0/dist/browser-id3-writer.min.js"></script>
+    <!-- Biblioteka do zapisu tagów ID3 (dla MP3) -->
+    <script src="https://cdn.jsdelivr.net/npm/js-id3-writer@1.1.2/dist/id3-writer.min.js"></script>
+    <!-- NOWA: Biblioteka do zapisu tagów MP4 (dla M4A) -->
+    <script src="https://cdn.jsdelivr.net/npm/mp4-tag-writer/dist/mp4-tag-writer.min.js"></script>
     <!-- Biblioteka do tworzenia archiwów ZIP -->
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <!-- Biblioteka do generowania unikalnych ID -->
@@ -42,11 +44,13 @@
   }
   
   @keyframes fade-out {
-    from { opacity: 1; max-height: 100px; }
-    to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; }
+    from { opacity: 1; max-height: 100px; transform: scaleY(1); }
+    to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; transform: scaleY(0); }
   }
   .animate-fade-out {
     animation: fade-out 0.3s ease-out forwards;
+    transform-origin: top;
+    overflow: hidden;
   }
   
   @keyframes flash-success {

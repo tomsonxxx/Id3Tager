@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { AudioFile, ID3Tags } from '../types';
 import AlbumCover from './AlbumCover';
 
@@ -6,18 +7,24 @@ interface EditTagsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (tags: ID3Tags) => void;
+  onApply: (tags: ID3Tags) => void;
   file: AudioFile;
   onManualSearch: (query: string, file: AudioFile) => Promise<void>;
   onZoomCover: (imageUrl: string) => void;
+  isApplying: boolean;
+  isDirectAccessMode: boolean;
 }
 
 const EditTagsModal: React.FC<EditTagsModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  onApply,
   file,
   onManualSearch,
   onZoomCover,
+  isApplying,
+  isDirectAccessMode,
 }) => {
   const [tags, setTags] = useState<ID3Tags>({});
   const [manualQuery, setManualQuery] = useState('');
@@ -64,7 +71,9 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
           setTags(file.fetchedTags || file.originalTags || {});
       }
   }, [file?.fetchedTags]);
-
+  
+  const initialTags = useMemo(() => file.fetchedTags || file.originalTags || {}, [file.fetchedTags, file.originalTags]);
+  const hasChanges = useMemo(() => JSON.stringify(tags) !== JSON.stringify(initialTags), [tags, initialTags]);
 
   if (!isOpen) return null;
 
@@ -187,7 +196,27 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
         {/* Action Buttons */}
         <div className="flex justify-end space-x-4 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600">Anuluj</button>
-          <button onClick={handleSave} className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500">Zapisz</button>
+          <button 
+            onClick={handleSave} 
+            className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500"
+            title="Zapisuje zmiany w pamięci podręcznej aplikacji do późniejszego pobrania lub zapisu."
+          >
+            Zapisz
+          </button>
+          {isDirectAccessMode && (
+            <button 
+              onClick={() => onApply(tags)} 
+              disabled={isApplying || !hasChanges}
+              className="px-4 py-2 text-sm font-bold text-white bg-green-600 rounded-md hover:bg-green-500 disabled:bg-green-400 disabled:cursor-not-allowed flex items-center justify-center w-[160px]"
+              title="Zapisuje zmiany i natychmiast nadpisuje oryginalny plik. Dostępne tylko w trybie bezpośredniego dostępu."
+            >
+              {isApplying ? (
+                  <><span className="btn-spinner !mr-2"></span><span>Zapisuję...</span></>
+              ) : (
+                  'Zastosuj zmiany'
+              )}
+            </button>
+          )}
         </div>
         <style>{`.animate-fade-in-scale { animation: fade-in-scale 0.2s ease-out forwards; } @keyframes fade-in-scale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
       </div>

@@ -86,7 +86,7 @@ const FileDropzone: React.FC<FileDropzoneProps> = ({ onFilesSelected, onUrlSubmi
         id="file-input"
         className="absolute w-full h-full top-0 left-0 opacity-0 cursor-pointer"
         multiple
-        accept="audio/mpeg, audio/mp3, audio/flac, audio/wav, audio/ogg, audio/m4a, audio/x-m4a, audio/aac, audio/x-ms-wma"
+        accept="audio/mpeg, audio/mp3, audio/mp4, audio/flac, audio/wav, audio/ogg, audio/m4a, audio/x-m4a, audio/aac, audio/x-ms-wma"
         onChange={handleFileChange}
         disabled={isProcessing}
       />

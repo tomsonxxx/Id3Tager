@@ -34,7 +34,7 @@ const TagPreviewTooltip: React.FC<TagPreviewTooltipProps> = ({ originalTags, fet
   if (!fetchedTags) return null;
 
   return (
-    <div className="absolute z-10 w-[40rem] max-w-2xl p-4 -mt-24 ml-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+    <div className="absolute z-10 w-[44rem] max-w-3xl p-4 -mt-24 ml-16 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
       <div className="flex space-x-4">
         {/* Original Tags Column */}
         <div className="w-1/2">

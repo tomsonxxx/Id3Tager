@@ -1,30 +1,43 @@
 import React, { useState, useEffect } from 'react';
-// Fix: Correct import path
-import { ApiKeys } from '../services/aiService';
+import { AIProvider, ApiKeys } from '../services/aiService';
+import { GeminiIcon } from './icons/GeminiIcon';
+import { GrokIcon } from './icons/GrokIcon';
+import { OpenAIIcon } from './icons/OpenAIIcon';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (keys: ApiKeys) => void;
+  onSave: (keys: ApiKeys, provider: AIProvider) => void;
   currentKeys: ApiKeys;
+  currentProvider: AIProvider;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, currentKeys }) => {
+const providerOptions: { id: AIProvider, name: string, Icon: React.FC<React.SVGProps<SVGSVGElement>> }[] = [
+    { id: 'gemini', name: 'Google Gemini', Icon: GeminiIcon },
+    { id: 'grok', name: 'Grok', Icon: GrokIcon },
+    { id: 'openai', name: 'OpenAI', Icon: OpenAIIcon }
+];
+
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, currentKeys, currentProvider }) => {
   const [grokApiKey, setGrokApiKey] = useState('');
   const [openAIApiKey, setOpenAIApiKey] = useState('');
+  const [provider, setProvider] = useState<AIProvider>(currentProvider);
 
+  // This effect synchronizes the modal's internal state with the app's global state
+  // when the modal is opened. The global state is persisted to localStorage in App.tsx.
   useEffect(() => {
     if (isOpen) {
       setGrokApiKey(currentKeys.grok || '');
       setOpenAIApiKey(currentKeys.openai || '');
+      setProvider(currentProvider);
     }
-  }, [isOpen, currentKeys]);
+  }, [isOpen, currentKeys, currentProvider]);
 
   const handleSave = () => {
     onSave({
       grok: grokApiKey.trim(),
       openai: openAIApiKey.trim(),
-    });
+    }, provider);
   };
 
   if (!isOpen) {
@@ -42,10 +55,44 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, 
         className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-lg mx-4 transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Ustawienia Kluczy API</h2>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Ustawienia</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-          Klucze API są przechowywane bezpiecznie w Twojej przeglądarce i nigdy nie są wysyłane poza Twoje urządzenie. Klucz API Gemini jest konfigurowany za pomocą zmiennej środowiskowej i nie jest tutaj wymagany.
+          Twoje ustawienia i klucze API są przechowywane bezpiecznie w Twojej przeglądarce i nigdy nie opuszczają Twojego urządzenia.
         </p>
+
+        {/* AI Provider Selection */}
+        <div className="mb-6">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Dostawca AI
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {providerOptions.map(({ id, name, Icon }) => (
+                    <div key={id}>
+                        <input
+                            type="radio"
+                            id={id}
+                            name="aiProvider"
+                            value={id}
+                            checked={provider === id}
+                            onChange={() => setProvider(id)}
+                            className="sr-only peer"
+                        />
+                        <label
+                            htmlFor={id}
+                            className={`flex items-center justify-center p-3 w-full text-sm font-medium text-center rounded-md cursor-pointer transition-colors border-2 ${
+                                provider === id
+                                ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+                                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900/50 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                            }`}
+                        >
+                            <Icon className="w-5 h-5 mr-2" />
+                            {name}
+                        </label>
+                    </div>
+                ))}
+            </div>
+        </div>
+
         <div className="space-y-4">
           <div>
             <label htmlFor="grokApiKey" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -91,7 +138,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, 
             onClick={handleSave}
             className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 focus:ring-indigo-500"
           >
-            Zapisz klucze
+            Zapisz ustawienia
           </button>
         </div>
       </div>

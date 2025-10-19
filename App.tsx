@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 // Components
@@ -14,13 +15,14 @@ import BatchEditModal from './components/BatchEditModal';
 import PostDownloadModal from './components/PostDownloadModal';
 import AlbumCoverModal from './components/AlbumCoverModal';
 import HeaderToolbar from './components/HeaderToolbar';
+import PreviewChangesModal from './components/PreviewChangesModal'; // Nowy import
 
 // Types
 import { AudioFile, ProcessingState, ID3Tags } from './types';
 import { AIProvider, ApiKeys, fetchTagsForFile, fetchTagsForBatch } from './services/aiService';
 
 // Utils
-import { readID3Tags, applyID3Tags, saveFileDirectly } from './utils/audioUtils';
+import { readID3Tags, applyTags, saveFileDirectly, isTagWritingSupported } from './utils/audioUtils';
 import { generatePath } from './utils/filenameUtils';
 import { sortFiles, SortKey } from './utils/sortingUtils';
 import { exportFilesToCsv } from './utils/csvUtils';
@@ -31,8 +33,14 @@ declare const JSZip: any;
 declare const saveAs: any;
 
 const MAX_CONCURRENT_REQUESTS = 3;
-const SUPPORTED_FORMATS = ['audio/mpeg', 'audio/mp3', 'audio/flac', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/x-ms-wma'];
+// Add 'audio/mp4' which is the standard MIME type for M4A files.
+const SUPPORTED_FORMATS = ['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/flac', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/x-ms-wma'];
 
+interface RenamePreview {
+    originalName: string;
+    newName: string;
+    isTooLong: boolean;
+}
 
 type ModalState = 
   | { type: 'none' }
@@ -42,7 +50,23 @@ type ModalState =
   | { type: 'settings' }
   | { type: 'batch-edit' }
   | { type: 'post-download'; count: number }
-  | { type: 'zoom-cover', imageUrl: string };
+  | { type: 'zoom-cover', imageUrl: string }
+  | { type: 'preview-changes'; title: string; confirmationText: string; previews: RenamePreview[]; onConfirm: () => void; };
+
+// This interface defines which parts of the AudioFile can be safely stored in JSON.
+interface SerializableAudioFile {
+  id: string;
+  state: ProcessingState;
+  originalTags: ID3Tags;
+  fetchedTags?: ID3Tags;
+  newName?: string;
+  isSelected?: boolean;
+  errorMessage?: string;
+  dateAdded: number;
+  webkitRelativePath?: string;
+  fileName: string; // from file.name
+  fileType: string; // from file.type
+}
 
 // Helper function to recursively get all files from a directory handle
 async function* getFilesRecursively(entry: any): AsyncGenerator<{ file: File, handle: any, path: string }> {
@@ -64,11 +88,39 @@ async function* getFilesRecursively(entry: any): AsyncGenerator<{ file: File, ha
 
 
 const App: React.FC = () => {
-    const [files, setFiles] = useState<AudioFile[]>([]);
+    const isRestoredRef = useRef(false);
+    const [isRestored, setIsRestored] = useState(false);
+    
+    const [files, setFiles] = useState<AudioFile[]>(() => {
+        const saved = localStorage.getItem('audioFiles');
+        if (saved) {
+            try {
+                const parsed: SerializableAudioFile[] = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    isRestoredRef.current = true; // Mark that we are restoring from storage
+                    return parsed.map(f => ({
+                        ...f,
+                        // Create a dummy file object; it's needed for type consistency but has no content.
+                        file: new File([], f.fileName, { type: f.fileType }),
+                        handle: null, // FileSystem handles cannot be stored in localStorage.
+                    }));
+                }
+            } catch (e) {
+                console.error("Nie udało się sparsować plików audio z localStorage", e);
+                localStorage.removeItem('audioFiles');
+            }
+        }
+        return [];
+    });
+
     const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [savingFileId, setSavingFileId] = useState<string | null>(null);
     const [directoryHandle, setDirectoryHandle] = useState<any | null>(null);
     
     // --- State with Auto-saving to localStorage ---
+    // The following state variables are automatically loaded from and saved to localStorage
+    // to persist user settings across sessions.
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'dark');
     
     const [apiKeys, setApiKeys] = useState<ApiKeys>(() => {
@@ -90,6 +142,13 @@ const App: React.FC = () => {
     const activeRequestsRef = useRef(0);
 
     // --- Auto-saving Effects ---
+    useEffect(() => {
+        if (isRestoredRef.current) {
+            setIsRestored(true);
+            isRestoredRef.current = false;
+        }
+    }, []);
+    
     useEffect(() => {
         localStorage.setItem('theme', theme);
         document.documentElement.className = theme;
@@ -114,6 +173,30 @@ const App: React.FC = () => {
     useEffect(() => {
         localStorage.setItem('renamePattern', renamePattern);
     }, [renamePattern]);
+
+    // This effect persists the file list to localStorage whenever it changes.
+    useEffect(() => {
+        if (files.length === 0 && !isRestored) {
+            localStorage.removeItem('audioFiles');
+            return;
+        }
+         if (files.length > 0) {
+            const serializableFiles: SerializableAudioFile[] = files.map(f => ({
+                id: f.id,
+                state: f.state,
+                originalTags: f.originalTags,
+                fetchedTags: f.fetchedTags,
+                newName: f.newName,
+                isSelected: f.isSelected,
+                errorMessage: f.errorMessage,
+                dateAdded: f.dateAdded,
+                webkitRelativePath: f.webkitRelativePath,
+                fileName: f.file.name,
+                fileType: f.file.type,
+            }));
+            localStorage.setItem('audioFiles', JSON.stringify(serializableFiles));
+        }
+    }, [files, isRestored]);
 
     // Effect to update filenames whenever the pattern or tags change
     useEffect(() => {
@@ -159,6 +242,12 @@ const App: React.FC = () => {
         }
     }, [files, aiProvider, apiKeys, updateFileState]);
 
+    const handleClearAndReset = () => {
+        setFiles([]);
+        setIsRestored(false);
+        setDirectoryHandle(null);
+    };
+
     const addFilesToQueue = useCallback(async (filesToAdd: { file: File, handle?: any, path?: string }[]) => {
         if (typeof uuid === 'undefined') {
             alert("Błąd krytyczny: Biblioteka 'uuid' nie została załadowana. Odśwież stronę.");
@@ -171,6 +260,8 @@ const App: React.FC = () => {
             const attemptedTypes = filesToAdd.map(f => f.file.type || 'nieznany').join(', ');
             throw new Error(`Żaden z podanych plików nie jest obsługiwanym formatem audio. Wykryte typy: ${attemptedTypes}`);
         }
+        
+        setIsRestored(false); // Adding new files creates a fresh session.
     
         const newAudioFiles: AudioFile[] = await Promise.all(
             validAudioFiles.map(async item => {
@@ -209,6 +300,7 @@ const App: React.FC = () => {
     }, [addFilesToQueue]);
 
     const handleDirectoryConnect = useCallback(async (handle: any) => {
+        setIsRestored(false); // A new connection always starts a fresh session.
         setDirectoryHandle(handle);
         setFiles([]); // Clear previous files
         
@@ -291,15 +383,15 @@ const App: React.FC = () => {
         setFiles(prevFiles => prevFiles.map(f => ({ ...f, isSelected: shouldSelectAll })));
     };
 
-    const handleSaveApiKeys = (keys: ApiKeys) => {
+    const handleSaveSettings = (keys: ApiKeys, provider: AIProvider) => {
         setApiKeys(keys);
+        setAiProvider(provider);
         setModalState({ type: 'none' });
     };
 
-    const handleDelete = (fileId: string | 'selected' | 'all') => {
+    const handleDelete = (fileId: string) => {
         if (fileId === 'all') {
-            setFiles([]);
-            setDirectoryHandle(null); // Disconnect from folder if clearing all
+            handleClearAndReset();
         } else if (fileId === 'selected') {
             setFiles(files => files.filter(f => !f.isSelected));
         } else {
@@ -311,6 +403,47 @@ const App: React.FC = () => {
     const handleSaveTags = (fileId: string, tags: ID3Tags) => {
         updateFileState(fileId, { fetchedTags: tags });
         setModalState({ type: 'none' });
+    };
+
+    const handleApplyTags = async (fileId: string, tags: ID3Tags) => {
+        if (!directoryHandle) {
+            alert("Funkcja 'Zastosuj zmiany' jest dostępna tylko w trybie bezpośredniego dostępu do folderu.");
+            return;
+        }
+
+        const fileToProcess = files.find(f => f.id === fileId);
+        if (!fileToProcess || !fileToProcess.handle) {
+             alert("Nie można zapisać tego pliku. Brak odniesienia do pliku (file handle).");
+            return;
+        }
+
+        setSavingFileId(fileId);
+        
+        // Create a temporary updated file object for the save operation, including the new tags
+        const tempUpdatedFile = { ...fileToProcess, fetchedTags: tags };
+
+        try {
+            const result = await saveFileDirectly(directoryHandle, tempUpdatedFile);
+            
+            if (result.success && result.updatedFile) {
+                // The result contains the fully updated file object (new File, new handle etc.)
+                updateFileState(fileId, { ...result.updatedFile, state: ProcessingState.SUCCESS });
+                setModalState({ type: 'none' }); // Close modal on success
+            } else {
+                updateFileState(fileId, { 
+                    state: ProcessingState.ERROR, 
+                    errorMessage: result.errorMessage,
+                    fetchedTags: tags // Keep the user's edits in the UI even on failure
+                });
+                alert(`Nie udało się zapisać pliku: ${result.errorMessage}`);
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Wystąpił nieznany błąd podczas zapisu.";
+            updateFileState(fileId, { state: ProcessingState.ERROR, errorMessage, fetchedTags: tags });
+            alert(`Wystąpił błąd krytyczny podczas zapisu: ${errorMessage}`);
+        } finally {
+            setSavingFileId(null);
+        }
     };
     
     const handleManualSearch = async (query: string, file: AudioFile) => {
@@ -326,8 +459,34 @@ const App: React.FC = () => {
     };
 
     const handleSaveRenamePattern = (newPattern: string) => {
-        setRenamePattern(newPattern);
-        setModalState({ type: 'none' });
+        const filesToPreview = selectedFiles.length > 0 ? selectedFiles : files.slice(0, 5);
+        if (filesToPreview.length === 0) {
+            setRenamePattern(newPattern);
+            setModalState({ type: 'none' });
+            return;
+        }
+
+        const previews = filesToPreview.map(file => {
+            const newName = generatePath(newPattern, file.fetchedTags || file.originalTags, file.file.name);
+            return {
+                originalName: file.webkitRelativePath || file.file.name,
+                newName: newName,
+                isTooLong: newName.length > 255
+            };
+        });
+
+        const handleConfirm = () => {
+            setRenamePattern(newPattern);
+            setModalState({ type: 'none' });
+        };
+        
+        setModalState({
+            type: 'preview-changes',
+            title: 'Potwierdź zmianę szablonu nazw',
+            confirmationText: 'Zostanie ustawiony nowy szablon nazw plików. Poniżej znajduje się podgląd dla kilku plików. Czy chcesz kontynuować?',
+            previews: previews,
+            onConfirm: handleConfirm
+        });
     };
 
     const handleBatchEditSave = (tagsToApply: Partial<ID3Tags>) => {
@@ -347,12 +506,48 @@ const App: React.FC = () => {
         setModalState({ type: 'none' });
     };
 
-    const handleDownloadOrSave = async () => {
+    const executeDownloadOrSave = async () => {
         if (directoryHandle) {
             await handleSaveDirectly();
         } else {
             await handleDownloadZip();
         }
+    };
+
+    const handleDownloadOrSave = async () => {
+        const filesToProcess = selectedFiles.length > 0 ? selectedFiles : [];
+        if (filesToProcess.length === 0) {
+            alert("Nie wybrano żadnych plików do zapisania lub pobrania.");
+            return;
+        }
+
+        const previews = filesToProcess.map(file => {
+            const newName = file.newName || file.file.name;
+            const oldName = file.webkitRelativePath || file.file.name;
+            return {
+                originalName: oldName,
+                newName: newName,
+                isTooLong: newName.length > 255
+            };
+        }).filter(p => p.originalName !== p.newName);
+
+        if (previews.length === 0) {
+            await executeDownloadOrSave();
+            return;
+        }
+
+        const handleConfirm = () => {
+            setModalState({ type: 'none' });
+            setTimeout(() => executeDownloadOrSave(), 50);
+        };
+
+        setModalState({
+            type: 'preview-changes',
+            title: `Potwierdź ${directoryHandle ? 'zapis i zmianę nazw' : 'pobieranie ze zmianą nazw'}`,
+            confirmationText: `Nazwy ${previews.length} z ${selectedFiles.length} zaznaczonych plików zostaną zmienione zgodnie z szablonem przed zapisaniem. Czy chcesz kontynuować?`,
+            previews: previews,
+            onConfirm: handleConfirm
+        });
     };
 
     const handleSaveDirectly = async () => {
@@ -361,37 +556,42 @@ const App: React.FC = () => {
             alert("Nie wybrano żadnych plików do zapisania lub pliki nie pochodzą z trybu bezpośredniego dostępu.");
             return;
         }
-
+        
+        setIsSaving(true);
         const fileIdsToSave = filesToSave.map(f => f.id);
         setFiles(files => files.map(f => fileIdsToSave.includes(f.id) ? { ...f, state: ProcessingState.DOWNLOADING } : f));
     
-        const results = await Promise.all(
-            filesToSave.map(file => saveFileDirectly(directoryHandle, file))
-        );
+        try {
+            const results = await Promise.all(
+                filesToSave.map(file => saveFileDirectly(directoryHandle, file))
+            );
 
-        let successCount = 0;
-        const updates = new Map<string, Partial<AudioFile>>();
+            let successCount = 0;
+            const updates = new Map<string, Partial<AudioFile>>();
 
-        results.forEach((result, index) => {
-            const originalFile = filesToSave[index];
-            if (result.success && result.updatedFile) {
-                successCount++;
-                updates.set(originalFile.id, { ...result.updatedFile, state: ProcessingState.SUCCESS, isSelected: false });
-            } else {
-                updates.set(originalFile.id, { state: ProcessingState.ERROR, errorMessage: result.errorMessage });
-            }
-        });
-
-        setFiles(currentFiles => 
-            currentFiles.map(file => {
-                if (updates.has(file.id)) {
-                    return { ...file, ...updates.get(file.id) };
+            results.forEach((result, index) => {
+                const originalFile = filesToSave[index];
+                if (result.success && result.updatedFile) {
+                    successCount++;
+                    updates.set(originalFile.id, { ...result.updatedFile, state: ProcessingState.SUCCESS, isSelected: false });
+                } else {
+                    updates.set(originalFile.id, { state: ProcessingState.ERROR, errorMessage: result.errorMessage });
                 }
-                return file;
-            })
-        );
-    
-        alert(`Zapisano pomyślnie ${successCount} z ${filesToSave.length} plików.`);
+            });
+
+            setFiles(currentFiles => 
+                currentFiles.map(file => {
+                    if (updates.has(file.id)) {
+                        return { ...file, ...updates.get(file.id) };
+                    }
+                    return file;
+                })
+            );
+        
+            alert(`Zapisano pomyślnie ${successCount} z ${filesToSave.length} plików.`);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handleDownloadZip = async () => {
@@ -405,14 +605,16 @@ const App: React.FC = () => {
             return;
         }
 
-        const nonMp3Files = successfulFiles.filter(f => f.file.type !== 'audio/mpeg' && f.file.type !== 'audio/mp3');
-        if (nonMp3Files.length > 0) {
+        const unsupportedTagFiles = successfulFiles.filter(f => !isTagWritingSupported(f.file));
+        if (unsupportedTagFiles.length > 0) {
+            const fileTypes = [...new Set(unsupportedTagFiles.map(f => f.file.name.split('.').pop()?.toUpperCase()))].join(', ');
             const shouldContinue = confirm(
-                `Uwaga: Tagi dla ${nonMp3Files.length} plików (innych niż MP3) nie zostaną zapisane, ale pliki zostaną przemianowane i dołączone do archiwum. Czy chcesz kontynuować?`
+                `Uwaga: Tagi dla ${unsupportedTagFiles.length} plików (typu: ${fileTypes}) nie zostaną zapisane, ale pliki zostaną przemianowane i dołączone do archiwum. Czy chcesz kontynuować?`
             );
             if (!shouldContinue) return;
         }
 
+        setIsSaving(true);
         const downloadableFileIds = successfulFiles.map(f => f.id);
         setFiles(files => files.map(f => downloadableFileIds.includes(f.id) ? { ...f, state: ProcessingState.DOWNLOADING } : f));
 
@@ -429,9 +631,8 @@ const App: React.FC = () => {
                 const finalName = generatePath(renamePattern, audioFile.fetchedTags || audioFile.originalTags, audioFile.file.name) || audioFile.file.name;
 
                 try {
-                    const isMp3 = audioFile.file.type === 'audio/mpeg' || audioFile.file.type === 'audio/mp3';
-                    if (isMp3 && audioFile.fetchedTags) {
-                        const blob = await applyID3Tags(audioFile.file, audioFile.fetchedTags);
+                    if (isTagWritingSupported(audioFile.file) && audioFile.fetchedTags) {
+                        const blob = await applyTags(audioFile.file, audioFile.fetchedTags);
                         zip.file(finalName, blob);
                     } else {
                         zip.file(finalName, audioFile.file);
@@ -465,6 +666,8 @@ const App: React.FC = () => {
             alert(`Wystąpił błąd krytyczny podczas tworzenia archiwum ZIP: ${e instanceof Error ? e.message : e}`);
             // Revert all to SUCCESS if the zip process fails catastrophically
             setFiles(files => files.map(f => downloadableFileIds.includes(f.id) ? { ...f, state: ProcessingState.SUCCESS } : f));
+        } finally {
+            setIsSaving(false);
         }
     };
     
@@ -497,14 +700,8 @@ const App: React.FC = () => {
         setModalState({ type: 'none' });
     };
 
-    const handleBatchAnalyze = async () => {
-        if (selectedFiles.length === 0 || isBatchAnalyzing) return;
-        
-        const filesToProcess = selectedFiles.filter(f => f.state !== ProcessingState.SUCCESS);
-        if (filesToProcess.length === 0) {
-            alert("Wszystkie zaznaczone pliki zostały już przetworzone.");
-            return;
-        }
+    const handleBatchAnalyze = async (filesToProcess: AudioFile[]) => {
+        if (filesToProcess.length === 0 || isBatchAnalyzing) return;
 
         const fileIdsToProcess = filesToProcess.map(f => f.id);
 
@@ -541,6 +738,15 @@ const App: React.FC = () => {
         }
     };
     
+    const handleBatchAnalyzeAll = () => {
+        const filesToAnalyze = files.filter(f => f.state !== ProcessingState.SUCCESS);
+        if (filesToAnalyze.length === 0) {
+            alert("Wszystkie pliki zostały już pomyślnie przetworzone.");
+            return;
+        }
+        handleBatchAnalyze(filesToAnalyze);
+    };
+
     const filesForRenamePreview = selectedFiles.length > 0 ? selectedFiles : files.slice(0, 5);
 
     return (
@@ -564,13 +770,31 @@ const App: React.FC = () => {
                     <>
                         <FileDropzone onFilesSelected={handleFilesSelected} onUrlSubmitted={handleUrlSubmitted} isProcessing={isProcessing} />
                         <div className="mt-8">
+                             {isRestored && (
+                                <div className="my-4 p-3 bg-yellow-100 dark:bg-yellow-900/50 border-l-4 border-yellow-500 text-yellow-800 dark:text-yellow-300 rounded-r-lg" role="alert">
+                                    <div className="flex justify-between items-center gap-4">
+                                        <div>
+                                            <p className="font-bold">Sesja przywrócona</p>
+                                            <p className="text-sm">Twoja poprzednia lista plików została wczytana. Aby zapisać lub pobrać pliki, musisz je ponownie załadować.</p>
+                                        </div>
+                                        <button
+                                            onClick={handleClearAndReset}
+                                            className="px-3 py-1.5 text-xs font-semibold text-yellow-800 dark:text-yellow-200 bg-yellow-200 dark:bg-yellow-800/60 rounded-md hover:bg-yellow-300 dark:hover:bg-yellow-800/90 transition-colors flex-shrink-0"
+                                        >
+                                            Wyczyść listę
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                              <HeaderToolbar
                                 totalCount={files.length}
                                 selectedCount={selectedFiles.length}
-                                isProcessing={isBatchAnalyzing}
+                                isAnalyzing={isBatchAnalyzing}
+                                isSaving={isSaving}
                                 allSelected={allFilesSelected}
                                 onToggleSelectAll={handleToggleSelectAll}
-                                onAnalyze={handleBatchAnalyze}
+                                onAnalyze={() => handleBatchAnalyze(selectedFiles)}
+                                onAnalyzeAll={handleBatchAnalyzeAll}
                                 onDownloadOrSave={handleDownloadOrSave}
                                 onEdit={() => setModalState({ type: 'batch-edit' })}
                                 onRename={() => setModalState({ type: 'rename' })}
@@ -579,6 +803,7 @@ const App: React.FC = () => {
                                 onClearAll={() => setModalState({ type: 'delete', fileId: 'all' })}
                                 isDirectAccessMode={!!directoryHandle}
                                 directoryName={directoryHandle?.name}
+                                isRestored={isRestored}
                             />
                             <div className="space-y-3 mt-4">
                                 {sortedFiles.map(file => (
@@ -587,7 +812,7 @@ const App: React.FC = () => {
                                         file={file} 
                                         onProcess={handleProcessFile}
                                         onEdit={(f) => setModalState({ type: 'edit', fileId: f.id })}
-                                        onDelete={(f) => setModalState({ type: 'delete', fileId: f.id })}
+                                        onDelete={(id) => handleDelete(id)}
                                         onSelectionChange={handleSelectionChange}
                                     />
                                 ))}
@@ -599,8 +824,8 @@ const App: React.FC = () => {
             </main>
             
             {/* --- Modals --- */}
-            {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveApiKeys} currentKeys={apiKeys} />}
-            {modalState.type === 'edit' && modalFile && <EditTagsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => handleSaveTags(modalFile.id, tags)} file={modalFile} onManualSearch={handleManualSearch} onZoomCover={(imageUrl) => setModalState({ type: 'zoom-cover', imageUrl })} />}
+            {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveSettings} currentKeys={apiKeys} currentProvider={aiProvider} />}
+            {modalState.type === 'edit' && modalFile && <EditTagsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => handleSaveTags(modalFile.id, tags)} onApply={(tags) => handleApplyTags(modalFile.id, tags)} isApplying={savingFileId === modalFile.id} isDirectAccessMode={!!directoryHandle} file={modalFile} onManualSearch={handleManualSearch} onZoomCover={(imageUrl) => setModalState({ type: 'zoom-cover', imageUrl })} />}
             {modalState.type === 'rename' && <RenameModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveRenamePattern} currentPattern={renamePattern} files={filesForRenamePreview} />}
             {modalState.type === 'delete' && (
                 <ConfirmationModal 
@@ -615,6 +840,17 @@ const App: React.FC = () => {
             {modalState.type === 'batch-edit' && <BatchEditModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleBatchEditSave} files={selectedFiles} />}
             {modalState.type === 'post-download' && <PostDownloadModal isOpen={true} onKeep={() => setModalState({ type: 'none' })} onRemove={handlePostDownloadRemove} count={modalState.count} />}
             {modalState.type === 'zoom-cover' && <AlbumCoverModal isOpen={true} onClose={() => setModalState({ type: 'none' })} imageUrl={modalState.imageUrl} />}
+            {modalState.type === 'preview-changes' && (
+                <PreviewChangesModal
+                    isOpen={true}
+                    onCancel={() => setModalState({ type: 'none' })}
+                    onConfirm={modalState.onConfirm}
+                    title={modalState.title}
+                    previews={modalState.previews}
+                >
+                    {modalState.confirmationText}
+                </PreviewChangesModal>
+            )}
         </div>
     );
 };
