@@ -28,7 +28,11 @@ export const generatePath = (
     .replace(/\[genre\]/gi, effectiveTags.genre || 'Unknown Genre')
     .replace(/\[trackNumber\]/gi, trackNumber)
     .replace(/\[discNumber\]/gi, discNumber)
-    .replace(/\[composer\]/gi, effectiveTags.composer || 'Unknown Composer');
+    .replace(/\[composer\]/gi, effectiveTags.composer || 'Unknown Composer')
+    .replace(/\[copyright\]/gi, effectiveTags.copyright || '')
+    .replace(/\[originalArtist\]/gi, effectiveTags.originalArtist || '')
+    .replace(/\[encodedBy\]/gi, effectiveTags.encodedBy || '');
+
 
   // Sanitize each path component individually to handle subdirectories correctly.
   const sanitizedParts = newName.split('/').map(part => {
@@ -45,5 +49,8 @@ export const generatePath = (
     return sanitizedPart || '_';
   });
   
-  return sanitizedParts.join('/') + `.${extension}`;
+  // Remove empty parts that might result from trailing slashes or empty placeholders
+  const finalParts = sanitizedParts.filter(p => p && p !== '_');
+
+  return finalParts.join('/') + `.${extension}`;
 };

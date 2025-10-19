@@ -1,5 +1,5 @@
 // Fix: Provide full implementation for the AI service using Gemini API.
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { AudioFile, ID3Tags } from '../types';
 
 export type AIProvider = 'gemini' | 'grok' | 'openai';
@@ -59,6 +59,28 @@ const batchFileResponseSchema = {
     }
 };
 
+const callGeminiWithRetry = async (
+    apiCall: () => Promise<GenerateContentResponse>,
+    maxRetries = 3
+): Promise<GenerateContentResponse> => {
+    let lastError: Error | null = null;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await apiCall();
+        } catch (error) {
+            lastError = error as Error;
+            console.warn(`Błąd wywołania API Gemini (próba ${i + 1}/${maxRetries}):`, lastError.message);
+            if (i < maxRetries - 1) {
+                // Exponential backoff
+                const delay = Math.pow(2, i) * 1000;
+                console.log(`Ponawiam próbę za ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    throw lastError || new Error("Nie udało się wykonać zapytania do API po wielokrotnych próbach.");
+};
+
 
 export const fetchTagsForFile = async (
   fileName: string,
@@ -67,28 +89,26 @@ export const fetchTagsForFile = async (
   apiKeys: ApiKeys
 ): Promise<ID3Tags> => {
   if (provider === 'gemini') {
-    // Fix: Per guidelines, API key MUST come from process.env.API_KEY
     if (!process.env.API_KEY) {
       throw new Error("Klucz API Gemini nie jest skonfigurowany w zmiennych środowiskowych (API_KEY).");
     }
-    // Fix: Use the correct Gemini API initialization.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const prompt = `Identify this song and provide its tags. Filename: "${fileName}". Existing tags: ${JSON.stringify(originalTags)}.`;
     
     try {
-        // Fix: Use the correct method to generate content with JSON response.
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                systemInstruction: getSystemInstruction(),
-                responseMimeType: "application/json",
-                responseSchema: singleFileResponseSchema,
-            },
-        });
+        const response = await callGeminiWithRetry(() => 
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: {
+                    systemInstruction: getSystemInstruction(),
+                    responseMimeType: "application/json",
+                    responseSchema: singleFileResponseSchema,
+                },
+            })
+        );
 
-        // Fix: Access the response text correctly.
         const text = response.text.trim();
         let parsedResponse: Partial<ID3Tags>;
 
@@ -104,7 +124,6 @@ export const fetchTagsForFile = async (
             ...parsedResponse
         };
 
-        // Clean up empty strings or nulls from AI response
         Object.keys(mergedTags).forEach(key => {
             const typedKey = key as keyof ID3Tags;
             if (mergedTags[typedKey] === "" || mergedTags[typedKey] === null) {
@@ -122,7 +141,6 @@ export const fetchTagsForFile = async (
         throw new Error("Wystąpił nieznany błąd z Gemini API.");
     }
   } else {
-    // Placeholder for other providers
     console.warn(`${provider} provider is not implemented. Returning original tags.`);
     return Promise.resolve(originalTags);
   }
@@ -149,15 +167,17 @@ export const fetchTagsForBatch = async (
     const prompt = `You are a music archivist. I have a batch of audio files that may be from the same album or artist. Please identify each track based on its filename and existing tags, and provide its full ID3 tags. Pay close attention to filenames that suggest they are from the same album or artist (e.g., sequential track numbers like '01-song.mp3', '02-another.mp3'). For these related files, ensure the 'artist', 'album', and 'albumArtist' tags are identical to maintain consistency. Here is the list of files:\n\n[${fileList}]\n\nReturn your response as a valid JSON array. Each object in the array must correspond to one of the input files and contain the 'originalFilename' I provided, along with all the identified tags from the schema.`;
 
     try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                systemInstruction: getSystemInstruction(),
-                responseMimeType: "application/json",
-                responseSchema: batchFileResponseSchema,
-            },
-        });
+        const response = await callGeminiWithRetry(() =>
+            ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: {
+                    systemInstruction: getSystemInstruction(),
+                    responseMimeType: "application/json",
+                    responseSchema: batchFileResponseSchema,
+                },
+            })
+        );
         
         const text = response.text.trim();
         let parsedResponse: any[];
@@ -175,21 +195,31 @@ export const fetchTagsForBatch = async (
         
         const validatedResults: BatchResult[] = [];
         const requestedFilenames = new Set(files.map(f => f.file.name));
+        const processedFilenames = new Set<string>();
     
         for (const item of parsedResponse) {
-            if (typeof item !== 'object' || item === null) {
-                console.warn("Skipping invalid item in batch response (not an object):", item);
-                continue;
+            try {
+                if (typeof item !== 'object' || item === null) {
+                    console.warn("Skipping invalid item in batch response (not an object):", item);
+                    continue;
+                }
+                if (!item.originalFilename || typeof item.originalFilename !== 'string') {
+                    console.warn("Skipping item in batch response with missing or invalid 'originalFilename':", item);
+                    continue;
+                }
+                if (processedFilenames.has(item.originalFilename)) {
+                    console.warn(`Skipping duplicate entry in batch response for filename: ${item.originalFilename}`);
+                    continue;
+                }
+                if (!requestedFilenames.has(item.originalFilename)) {
+                    console.warn(`Skipping item in batch response with an unexpected 'originalFilename' that was not in the request: ${item.originalFilename}`);
+                    continue;
+                }
+                validatedResults.push(item as BatchResult);
+                processedFilenames.add(item.originalFilename);
+            } catch (e) {
+                console.error("Error processing a single item in batch response. Skipping.", { item, error: e });
             }
-            if (!item.originalFilename || typeof item.originalFilename !== 'string') {
-                console.warn("Skipping item in batch response with missing or invalid 'originalFilename':", item);
-                continue;
-            }
-            if (!requestedFilenames.has(item.originalFilename)) {
-                console.warn(`Skipping item in batch response with an unexpected 'originalFilename' that was not in the request: ${item.originalFilename}`);
-                continue;
-            }
-            validatedResults.push(item as BatchResult);
         }
     
         if(validatedResults.length < files.length) {

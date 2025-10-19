@@ -10,7 +10,20 @@ interface RenameModalProps {
   files: AudioFile[]; // Changed from exampleFile to a list
 }
 
-const placeholders = ['artist', 'title', 'album', 'year', 'genre', 'trackNumber', 'albumArtist', 'discNumber', 'composer'];
+const placeholders: (keyof Omit<ID3Tags, 'albumCoverUrl' | 'comments' | 'mood' | 'bitrate' | 'sampleRate'>)[] = [
+    'title', 
+    'artist', 
+    'albumArtist', 
+    'album', 
+    'trackNumber', 
+    'discNumber', 
+    'year', 
+    'genre', 
+    'composer', 
+    'originalArtist', 
+    'copyright', 
+    'encodedBy'
+];
 
 const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, currentPattern, files }) => {
   const [pattern, setPattern] = useState(currentPattern);
@@ -57,7 +70,10 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
       genre: 'Pop',
       trackNumber: '01',
       discNumber: '1',
-      composer: 'Kompozytor'
+      composer: 'Kompozytor',
+      copyright: '© 2024 Wytwórnia',
+      encodedBy: 'Encoder',
+      originalArtist: 'Oryginalny Wykonawca'
   };
 
   return (
@@ -104,14 +120,21 @@ const RenameModal: React.FC<RenameModalProps> = ({ isOpen, onClose, onSave, curr
                 <ul className="text-xs font-mono mt-1 space-y-2">
                     {files.map(file => {
                         const preview = generatePath(pattern, file.fetchedTags || file.originalTags, file.file.name);
+                        const isTooLong = preview.length > 255;
                         return (
                             <li key={file.id} className="grid grid-cols-[1fr,auto,1fr] gap-2 items-center">
                                 <span className="truncate text-slate-500 dark:text-slate-400 text-right" title={file.file.name}>{file.file.name}</span>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 dark:text-slate-500" viewBox="0 0 20 20" fill="currentColor">
                                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
                                 </svg>
-                                <span className="truncate text-indigo-600 dark:text-indigo-400" title={preview}>
-                                    {preview}
+                                <span className={`flex items-center truncate ${isTooLong ? 'text-amber-600 dark:text-amber-500' : 'text-indigo-600 dark:text-indigo-400'}`} title={preview}>
+                                    {isTooLong && (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                            <title>Wygenerowana ścieżka jest bardzo długa (&gt;255 znaków) i może powodować problemy w niektórych systemach plików.</title>
+                                            <path fillRule="evenodd" d="M8.257 3.099c.636-1.21 2.852-1.21 3.488 0l6.233 11.896c.64 1.223-.453 2.755-1.744 2.755H3.768c-1.291 0-2.384-1.532-1.744-2.755L8.257 3.099zM10 13a1 1 0 110-2 1 1 0 010 2zm-1-4a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    )}
+                                    <span className="truncate">{preview}</span>
                                 </span>
                             </li>
                         )

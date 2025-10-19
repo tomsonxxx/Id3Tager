@@ -365,32 +365,33 @@ const App: React.FC = () => {
         const fileIdsToSave = filesToSave.map(f => f.id);
         setFiles(files => files.map(f => fileIdsToSave.includes(f.id) ? { ...f, state: ProcessingState.DOWNLOADING } : f));
     
-        let successCount = 0;
-        let successfullySavedIds: string[] = [];
+        const results = await Promise.all(
+            filesToSave.map(file => saveFileDirectly(directoryHandle, file))
+        );
 
-        for (const audioFile of filesToSave) {
-            const result = await saveFileDirectly(directoryHandle, audioFile);
+        let successCount = 0;
+        const updates = new Map<string, Partial<AudioFile>>();
+
+        results.forEach((result, index) => {
+            const originalFile = filesToSave[index];
             if (result.success && result.updatedFile) {
-                setFiles(prev => prev.map(f => f.id === audioFile.id ? { ...result.updatedFile, state: ProcessingState.SUCCESS } : f));
                 successCount++;
-                successfullySavedIds.push(audioFile.id);
+                updates.set(originalFile.id, { ...result.updatedFile, state: ProcessingState.SUCCESS, isSelected: false });
             } else {
-                updateFileState(audioFile.id, { state: ProcessingState.ERROR, errorMessage: result.errorMessage });
+                updates.set(originalFile.id, { state: ProcessingState.ERROR, errorMessage: result.errorMessage });
             }
-        }
+        });
+
+        setFiles(currentFiles => 
+            currentFiles.map(file => {
+                if (updates.has(file.id)) {
+                    return { ...file, ...updates.get(file.id) };
+                }
+                return file;
+            })
+        );
     
         alert(`Zapisano pomyślnie ${successCount} z ${filesToSave.length} plików.`);
-
-        // Revert any remaining DOWNLOADING states and deselect successful ones
-        setFiles(files => files.map(f => {
-            if (f.state === ProcessingState.DOWNLOADING) { // This catches failures
-               return { ...f, state: ProcessingState.ERROR, errorMessage: "Zapis nie powiódł się" };
-            }
-            if (successfullySavedIds.includes(f.id)) {
-                return { ...f, isSelected: false }; // Deselect on success
-            }
-            return f;
-        }));
     };
 
     const handleDownloadZip = async () => {
@@ -421,22 +422,25 @@ const App: React.FC = () => {
             }
 
             const zip = new JSZip();
+            const errorUpdates = new Map<string, Partial<AudioFile>>();
             
-            for (const audioFile of successfulFiles) {
+            await Promise.all(successfulFiles.map(async (audioFile) => {
+                // FIX: Generate the final filename inside this function for robustness.
+                const finalName = generatePath(renamePattern, audioFile.fetchedTags || audioFile.originalTags, audioFile.file.name) || audioFile.file.name;
+
                 try {
                     const isMp3 = audioFile.file.type === 'audio/mpeg' || audioFile.file.type === 'audio/mp3';
                     if (isMp3 && audioFile.fetchedTags) {
                         const blob = await applyID3Tags(audioFile.file, audioFile.fetchedTags);
-                        zip.file(audioFile.newName!, blob);
+                        zip.file(finalName, blob);
                     } else {
-                        // For non-MP3s, add the original file with the new name
-                        zip.file(audioFile.newName!, audioFile.file);
+                        zip.file(finalName, audioFile.file);
                     }
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : "Błąd podczas zapisu tagów.";
-                    updateFileState(audioFile.id, { state: ProcessingState.ERROR, errorMessage });
+                    errorUpdates.set(audioFile.id, { state: ProcessingState.ERROR, errorMessage });
                 }
-            }
+            }));
 
             const successfullyProcessedCount = Object.keys(zip.files).length;
             if (successfullyProcessedCount > 0) {
@@ -446,15 +450,21 @@ const App: React.FC = () => {
             } else {
                 alert("Nie udało się przetworzyć żadnego z wybranych plików. Sprawdź komunikaty o błędach.");
             }
-        } catch (e) {
-            alert(`Wystąpił błąd krytyczny podczas tworzenia archiwum ZIP: ${e instanceof Error ? e.message : e}`);
-        } finally {
+
              setFiles(files => files.map(f => {
+                if (errorUpdates.has(f.id)) {
+                   return { ...f, ...errorUpdates.get(f.id) };
+                }
                 if (downloadableFileIds.includes(f.id) && f.state === ProcessingState.DOWNLOADING) {
                    return { ...f, state: ProcessingState.SUCCESS };
                 }
                 return f;
             }));
+
+        } catch (e) {
+            alert(`Wystąpił błąd krytyczny podczas tworzenia archiwum ZIP: ${e instanceof Error ? e.message : e}`);
+            // Revert all to SUCCESS if the zip process fails catastrophically
+            setFiles(files => files.map(f => downloadableFileIds.includes(f.id) ? { ...f, state: ProcessingState.SUCCESS } : f));
         }
     };
     
