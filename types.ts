@@ -1,4 +1,3 @@
-// Fix: Provide full implementation for application types.
 export enum ProcessingState {
   PENDING = 'PENDING',
   PROCESSING = 'PROCESSING',

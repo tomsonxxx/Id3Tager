@@ -1,4 +1,3 @@
-// Fix: Provide full implementation for the AI service using Gemini API.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { AudioFile, ID3Tags } from '../types';
 
@@ -124,6 +123,7 @@ export const fetchTagsForFile = async (
             ...parsedResponse
         };
 
+        // Remove empty or null values returned by the API to keep the data clean
         Object.keys(mergedTags).forEach(key => {
             const typedKey = key as keyof ID3Tags;
             if (mergedTags[typedKey] === "" || mergedTags[typedKey] === null) {
@@ -142,7 +142,7 @@ export const fetchTagsForFile = async (
     }
   }
   
-  // Handle other providers
+  // Handle other providers (placeholder)
   if (provider === 'grok') {
     if (!apiKeys.grok) {
       throw new Error("Klucz API dla Grok nie został podany w ustawieniach.");
@@ -211,6 +211,7 @@ export const fetchTagsForBatch = async (
                  throw new Error("Odpowiedź AI nie jest w formacie tablicy JSON.");
             }
             
+            // Validate the response to ensure it matches what we requested.
             const validatedResults: BatchResult[] = [];
             const requestedFilenames = new Set(files.map(f => f.file.name));
             const processedFilenames = new Set<string>();

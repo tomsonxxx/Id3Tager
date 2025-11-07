@@ -14,7 +14,10 @@ interface FileListItemProps {
 }
 
 const usePrevious = <T,>(value: T): T | undefined => {
-    const ref = useRef<T>();
+    // FIX: Explicitly pass `undefined` to `useRef`. The parameter-less overload `useRef()`
+    // can sometimes cause "Expected 1 arguments, but got 0" errors with certain
+    // TypeScript configurations or linter rules.
+    const ref = useRef<T | undefined>(undefined);
     useEffect(() => {
         ref.current = value;
     });

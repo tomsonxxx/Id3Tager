@@ -1,4 +1,3 @@
-// Fix: Correct import path
 import { AudioFile, ProcessingState } from '../types';
 
 export type SortKey = 'dateAdded' | 'originalName' | 'newName' | 'state';

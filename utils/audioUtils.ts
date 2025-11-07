@@ -1,5 +1,3 @@
-
-// Fix: Provide full implementation for audio utility functions.
 import { ID3Tags, AudioFile, ProcessingState } from '../types';
 
 // Assume jsmediatags is loaded globally via a <script> tag
@@ -32,6 +30,15 @@ export const readID3Tags = (file: File): Promise<ID3Tags> => {
     if (typeof jsmediatags === 'undefined') {
       console.warn('jsmediatags library not found. Returning empty tags.');
       return resolve({});
+    }
+    
+    // FIX: Proactively skip reading tags for WAV files. The jsmediatags library
+    // does not support the RIFF info chunk format used by WAV files, which causes
+    // a 'tagFormat' error. By skipping it, we avoid the error and proceed smoothly.
+    const lowerCaseName = file.name.toLowerCase();
+    if (file.type.startsWith('audio/wav') || file.type.startsWith('audio/x-wav') || lowerCaseName.endsWith('.wav') || lowerCaseName.endsWith('.wave')) {
+        console.log(`Pomijanie odczytu tagów dla pliku WAV (${file.name}), ponieważ format nie jest w pełni obsługiwany przez bibliotekę odczytującą.`);
+        return resolve({});
     }
 
     jsmediatags.read(file, {
@@ -188,6 +195,15 @@ const applyMP4TagsToFile = async (fileBuffer: ArrayBuffer, tags: ID3Tags): Promi
     if (tags.composer) writer.setTag('©wrt', tags.composer);
     if (tags.copyright) writer.setTag('cprt', tags.copyright);
     if (tags.encodedBy) writer.setTag('©enc', tags.encodedBy);
+    
+    // NEW: Add custom tags for 'mood' and 'originalArtist' for better compatibility with iTunes.
+    // These are stored in generic "----" atoms with a reverse-DNS mean and a name.
+    if (tags.mood) {
+        writer.setTag('----', { mean: 'com.apple.iTunes', name: 'MOOD', data: tags.mood });
+    }
+    if (tags.originalArtist) {
+        writer.setTag('----', { mean: 'com.apple.iTunes', name: 'ORIGINAL ARTIST', data: tags.originalArtist });
+    }
 
     // Track and Disc numbers are special cases
     if (tags.trackNumber) {
