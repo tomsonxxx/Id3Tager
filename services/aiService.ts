@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { AudioFile, ID3Tags } from '../types';
 
@@ -11,14 +12,22 @@ export interface ApiKeys {
 const getSystemInstruction = () => {
   return `You are an expert music archivist with access to a vast database of music information, equivalent to searching across major portals like MusicBrainz, Discogs, AllMusic, Spotify, and Apple Music.
 Your task is to identify the song from the provided filename and any existing tags, and then provide the most accurate and complete ID3 tag information possible.
+
+RULES FOR MERGING AND ACCURACY:
 - Analyze the filename and existing tags to identify the track.
-- Search for all relevant tags: title, artist, album, release year, genre, track number, disc number (e.g., '1/2'), album artist, composer, original artist, copyright info, and who it was encoded by.
-- Determine the overall 'mood' of the song (e.g., energetic, melancholic, calm, epic).
-- Provide brief 'comments' about the song (e.g., "Classic 80s rock anthem with a memorable guitar solo.").
+- Existing tags provided in the input are hints. If they seem correct, preserve them. If they seem wrong or missing, correct/fill them.
+- If you cannot confidently determine a piece of information, return null or omit the field. DO NOT return empty strings ("") or generic placeholders like "Unknown Artist" if the user provided specific data.
 - VERY IMPORTANT: Prioritize the original studio album the song was first released on. Avoid 'Greatest Hits' compilations, singles, or re-releases unless it's the only available source.
-- Find a URL for a high-quality (at least 500x500 pixels) front cover of the album.
-- Infer the typical audio properties for this release, such as 'bitrate' (in kbps, e.g., 320) and 'sampleRate' (in Hz, e.g., 44100).
-- If you cannot confidently determine a piece of information, leave the corresponding field empty or null. Do not guess.
+
+TAGS TO FIND:
+- title, artist, album, release year (4 digits), genre.
+- track number, disc number (e.g., '1/2').
+- album artist, composer, original artist (for covers).
+- copyright info, encoded by.
+- mood (e.g., energetic, melancholic), comments (brief facts).
+- albumCoverUrl (high-quality image URL).
+- Infer technical specs if possible: bitrate (kbps), sampleRate (Hz).
+
 The response must be in JSON format.`;
 };
 
@@ -80,6 +89,24 @@ const callGeminiWithRetry = async (
     throw lastError || new Error("Nie udało się wykonać zapytania do API po wielokrotnych próbach.");
 };
 
+// Helper to determine if a new value should overwrite an old one
+const shouldOverwrite = (newValue: any, oldValue: any): boolean => {
+    // If new value is empty/null/undefined, keep the old one
+    if (newValue === null || newValue === undefined || newValue === '') return false;
+    
+    // If new value is a string, check for generic placeholders that are worse than existing data
+    if (typeof newValue === 'string') {
+        const lowerNew = newValue.toLowerCase();
+        // If AI returns "Unknown", but we have a real value, keep the real value
+        if ((lowerNew.includes('unknown') || lowerNew.includes('undefined')) && oldValue && oldValue.length > 0) {
+            return false;
+        }
+    }
+    
+    // Otherwise, assume the new AI value is better or we didn't have an old value
+    return true;
+};
+
 
 export const fetchTagsForFile = async (
   fileName: string,
@@ -118,16 +145,18 @@ export const fetchTagsForFile = async (
             throw new Error("Otrzymano nieprawidłowy format JSON z AI.");
         }
 
-        const mergedTags: ID3Tags = {
-            ...originalTags,
-            ...parsedResponse
-        };
-
-        // Remove empty or null values returned by the API to keep the data clean
-        Object.keys(mergedTags).forEach(key => {
+        // Intelligent Merge Logic
+        const mergedTags: ID3Tags = { ...originalTags };
+        
+        Object.keys(parsedResponse).forEach((key) => {
             const typedKey = key as keyof ID3Tags;
-            if (mergedTags[typedKey] === "" || mergedTags[typedKey] === null) {
-                delete mergedTags[typedKey];
+            const newValue = parsedResponse[typedKey];
+            const oldValue = originalTags[typedKey];
+
+            if (shouldOverwrite(newValue, oldValue)) {
+                // We need to cast to any here because TypeScript struggles with the dynamic key assignment 
+                // on the interface types, even though we checked keys.
+                (mergedTags as any)[typedKey] = newValue;
             }
         });
 
@@ -215,26 +244,43 @@ export const fetchTagsForBatch = async (
             const validatedResults: BatchResult[] = [];
             const requestedFilenames = new Set(files.map(f => f.file.name));
             const processedFilenames = new Set<string>();
+            
+            // Map files for easier lookup to perform merge
+            const filesMap = new Map(files.map(f => [f.file.name, f]));
         
             for (const item of parsedResponse) {
                 try {
                     if (typeof item !== 'object' || item === null) {
-                        console.warn("Skipping invalid item in batch response (not an object):", item);
                         continue;
                     }
-                    if (!item.originalFilename || typeof item.originalFilename !== 'string') {
-                        console.warn("Skipping item in batch response with missing or invalid 'originalFilename':", item);
+                    if (!item.originalFilename || !requestedFilenames.has(item.originalFilename)) {
                         continue;
                     }
                     if (processedFilenames.has(item.originalFilename)) {
-                        console.warn(`Skipping duplicate entry in batch response for filename: ${item.originalFilename}`);
                         continue;
                     }
-                    if (!requestedFilenames.has(item.originalFilename)) {
-                        console.warn(`Skipping item in batch response with an unexpected 'originalFilename' that was not in the request: ${item.originalFilename}`);
-                        continue;
-                    }
-                    validatedResults.push(item as BatchResult);
+                    
+                    // Perform Smart Merge for Batch Items too
+                    const originalFile = filesMap.get(item.originalFilename);
+                    const originalTags = originalFile ? originalFile.originalTags : {};
+                    
+                    const mergedItem: any = { originalFilename: item.originalFilename };
+                    
+                    // Merge standard fields
+                    const allKeys = new Set([...Object.keys(item), ...Object.keys(originalTags)]);
+                    allKeys.forEach(key => {
+                        if (key === 'originalFilename') return;
+                        const newVal = item[key];
+                        const oldVal = (originalTags as any)[key];
+                        
+                        if (shouldOverwrite(newVal, oldVal)) {
+                            mergedItem[key] = newVal;
+                        } else {
+                             mergedItem[key] = oldVal;
+                        }
+                    });
+
+                    validatedResults.push(mergedItem as BatchResult);
                     processedFilenames.add(item.originalFilename);
                 } catch (e) {
                     console.error("Error processing a single item in batch response. Skipping.", { item, error: e });

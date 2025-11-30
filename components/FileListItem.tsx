@@ -71,9 +71,25 @@ const FileListItem: React.FC<FileListItemProps> = ({
     }, 300); // Must match the duration of fade-out animation
   };
 
+  // Określenie tła i ramki w zależności od stanu przetwarzania i zaznaczenia
+  let bgClass = "bg-white dark:bg-slate-800";
+  let borderClass = "border-transparent dark:border-slate-700";
+
+  if (isProcessing) {
+    // Animowany gradient dla aktywnego przetwarzania
+    bgClass = "bg-gradient-to-r from-slate-50 via-indigo-50 to-slate-50 dark:from-slate-800 dark:via-indigo-900/20 dark:to-slate-800 animate-gradient-loading";
+    borderClass = "border-indigo-200 dark:border-indigo-900"; // Subtelna ramka podczas przetwarzania
+  }
+
+  if (file.isSelected) {
+    borderClass = 'border-indigo-500 ring-2 ring-indigo-500/50';
+    // Jeśli zaznaczony, ale nie przetwarzany, zostawiamy standardowe tło (ew. można by dodać lekki tint)
+  }
+
   const itemClasses = [
-      "flex items-center p-3 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-all duration-300 border",
-      file.isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/50' : 'border-transparent dark:border-slate-700',
+      "flex items-center p-3 rounded-lg shadow-sm transition-all duration-300 border",
+      bgClass,
+      borderClass,
       file.state === ProcessingState.SUCCESS ? 'opacity-70' : '',
       isExiting ? 'animate-fade-out' : 'animate-fade-in'
   ].join(' ');

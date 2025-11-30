@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pl" class="dark">
   <head>
@@ -8,9 +9,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Biblioteka do odczytu tagów ID3 -->
     <script src="https://cdn.jsdelivr.net/npm/jsmediatags@3.9.7/dist/jsmediatags.min.js"></script>
-    <!-- Biblioteka do zapisu tagów ID3 (dla MP3) -->
-    <script src="https://cdn.jsdelivr.net/npm/js-id3-writer@1.1.2/dist/id3-writer.min.js"></script>
-    <!-- NOWA: Biblioteka do zapisu tagów MP4 (dla M4A) -->
+    <!-- Biblioteka do zapisu tagów ID3 (dla MP3) - Zaktualizowana do browser-id3-writer (jsdelivr) -->
+    <script src="https://cdn.jsdelivr.net/npm/browser-id3-writer@4.4.0/dist/browser-id3-writer.min.js"></script>
+    <!-- Biblioteka do zapisu tagów MP4 (dla M4A) -->
     <script src="https://cdn.jsdelivr.net/npm/mp4-tag-writer/dist/mp4-tag-writer.min.js"></script>
     <!-- Biblioteka do tworzenia archiwów ZIP -->
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -73,6 +74,17 @@
   }
   .animate-flash-error {
     animation: flash-error 0.7s ease-out;
+  }
+  
+  /* Animacja tła dla przetwarzania */
+  @keyframes gradient-loading {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .animate-gradient-loading {
+    background-size: 200% 200%;
+    animation: gradient-loading 2s ease infinite;
   }
   
   .btn-spinner {
