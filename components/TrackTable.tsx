@@ -9,14 +9,14 @@ interface TrackTableProps {
   selectedFileIds: string[];
   activeFileId: string | null;
   onSelect: (id: string, multi: boolean) => void;
-  onSelectAll?: () => void; // New prop
+  onSelectAll?: () => void;
   onActivate: (file: AudioFile) => void;
   sortConfig: SortConfig[];
   onSort: (config: SortConfig[]) => void;
 }
 
 interface ColumnDef {
-    id: SortKey | 'select'; // Added 'select'
+    id: SortKey | 'select';
     label: string;
     defaultWidth: number;
     minWidth: number;
@@ -24,15 +24,15 @@ interface ColumnDef {
 }
 
 const columns: ColumnDef[] = [
-    { id: 'select', label: '', defaultWidth: 40, minWidth: 40, isSortable: false }, // Checkbox column
+    { id: 'select', label: '', defaultWidth: 40, minWidth: 40, isSortable: false },
     { id: 'state', label: 'Status', defaultWidth: 60, minWidth: 50, isSortable: true },
-    { id: 'title', label: 'Tytuł', defaultWidth: 300, minWidth: 150, isSortable: true },
-    { id: 'artist', label: 'Artysta', defaultWidth: 200, minWidth: 100, isSortable: true },
-    { id: 'album', label: 'Album', defaultWidth: 200, minWidth: 100, isSortable: true },
-    { id: 'year', label: 'Rok', defaultWidth: 80, minWidth: 60, isSortable: true },
-    { id: 'genre', label: 'Gatunek', defaultWidth: 150, minWidth: 80, isSortable: true },
-    { id: 'bpm', label: 'BPM', defaultWidth: 70, minWidth: 60, isSortable: true },
-    { id: 'key', label: 'Klucz', defaultWidth: 70, minWidth: 60, isSortable: true },
+    { id: 'title', label: 'Tytuł', defaultWidth: 250, minWidth: 150, isSortable: true },
+    { id: 'artist', label: 'Artysta', defaultWidth: 180, minWidth: 100, isSortable: true },
+    { id: 'album', label: 'Album', defaultWidth: 180, minWidth: 100, isSortable: true },
+    { id: 'year', label: 'Rok', defaultWidth: 70, minWidth: 60, isSortable: true },
+    { id: 'genre', label: 'Gatunek', defaultWidth: 120, minWidth: 80, isSortable: true },
+    { id: 'bpm', label: 'BPM', defaultWidth: 60, minWidth: 50, isSortable: true },
+    { id: 'key', label: 'Key', defaultWidth: 60, minWidth: 50, isSortable: true },
 ];
 
 const TrackTable: React.FC<TrackTableProps> = ({ 
@@ -122,16 +122,12 @@ const TrackTable: React.FC<TrackTableProps> = ({
   };
 
   const handleRowClick = (e: React.MouseEvent, id: string) => {
-    // If clicking explicitly on the checkbox, handle it separately in the checkbox onChange
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
-    
     onSelect(id, e.ctrlKey || e.metaKey || e.shiftKey);
   };
 
-  const handleCheckboxChange = (id: string, checked: boolean) => {
-      // Logic for checkbox: toggles selection but keeps others if ctrl is not pressed?
-      // Usually checkbox implies "add/remove from selection" (multi mode)
-      onSelect(id, true); // Treat checkbox click as multi-select toggle
+  const handleCheckboxChange = (id: string) => {
+      onSelect(id, true);
   };
 
   const handleSelectAllChange = () => {
@@ -183,7 +179,6 @@ const TrackTable: React.FC<TrackTableProps> = ({
                             </div>
                         )}
                         
-                        {/* Resizer Handle */}
                         <div 
                             className="resizer absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-500 z-20 opacity-0 group-hover:opacity-100"
                             onMouseDown={(e) => handleResizeStart(e, col.id)}
@@ -216,7 +211,7 @@ const TrackTable: React.FC<TrackTableProps> = ({
                         <input 
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => handleCheckboxChange(file.id, !isSelected)}
+                            onChange={() => handleCheckboxChange(file.id)}
                             className="h-4 w-4 rounded bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                         />
                     </div>
@@ -250,10 +245,10 @@ const TrackTable: React.FC<TrackTableProps> = ({
                         ) : '-'}
                     </div>
                     <div className="px-4 py-2 flex-shrink-0 truncate text-slate-500 dark:text-slate-400 font-mono text-xs" style={{ width: columnWidths['bpm'] }}>
-                        -
+                        {tags.bpm || '-'}
                     </div>
                      <div className="px-4 py-2 flex-shrink-0 truncate text-slate-500 dark:text-slate-400 font-mono text-xs" style={{ width: columnWidths['key'] }}>
-                        -
+                        {tags.initialKey || '-'}
                     </div>
                 </div>
                 );

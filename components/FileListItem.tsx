@@ -22,7 +22,6 @@ function usePrevious<T>(value: T): T | undefined {
     return ref.current;
 }
 
-
 const FileListItem: React.FC<FileListItemProps> = ({
   file,
   onEdit,
@@ -42,6 +41,13 @@ const FileListItem: React.FC<FileListItemProps> = ({
   const displayName = file.newName || file.file.name;
   const hasNewName = !!file.newName && file.newName !== file.file.name;
   const supportsTagWriting = isTagWritingSupported(file.file);
+  
+  // Confidence Indicator Logic
+  const confidence = file.fetchedTags?.confidence;
+  let confidenceColor = 'bg-slate-300'; // none
+  if (confidence === 'high') confidenceColor = 'bg-green-500';
+  if (confidence === 'medium') confidenceColor = 'bg-yellow-500';
+  if (confidence === 'low') confidenceColor = 'bg-red-500';
 
   useEffect(() => {
     const element = itemRef.current;
@@ -63,10 +69,9 @@ const FileListItem: React.FC<FileListItemProps> = ({
   
   const handleDelete = () => {
     setIsExiting(true);
-    // Wait for animation to finish before calling the actual delete function
     setTimeout(() => {
         onDelete(file.id);
-    }, 300); // Must match the duration of fade-out animation
+    }, 300);
   };
 
   const itemClasses = [
@@ -88,16 +93,18 @@ const FileListItem: React.FC<FileListItemProps> = ({
       <div className="relative group">
         <AlbumCover tags={displayTags} />
         {hasFetchedTags && <TagPreviewTooltip originalTags={file.originalTags} fetchedTags={file.fetchedTags} />}
+        
+        {/* Confidence Badge */}
+        {hasFetchedTags && confidence && (
+            <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border border-white ${confidenceColor}`} title={`AI Confidence: ${confidence}`} />
+        )}
       </div>
       <div className="flex-grow ml-4 overflow-hidden">
         <div className="flex items-center gap-2">
             {file.duplicateSetId && (
                 <div className="flex-shrink-0" title="Potencjalny duplikat">
                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                           <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0l-1.5-1.5a2 2 0 112.828-2.828l1.5 1.5l3-3a2 2 0 012.828 2.828l-3 3a2 2 0 01-2.828 0l-1.5-1.5a2 2 0 112.828-2.828l1.5 1.5z" clipRule="evenodd" />
-                           <path fillRule="evenodd" d="M7.414 15.414a2 2 0 11-2.828-2.828l3-3a2 2 0 012.828 0l1.5 1.5a2 2 0 11-2.828 2.828l-1.5-1.5-3 3a2 2 0 01-2.828-2.828l3-3a2 2 0 012.828 0l1.5 1.5a2 2 0 11-2.828 2.828l-1.5-1.5z" clipRule="evenodd" />
-                        </svg>
+                        Dup
                      </span>
                 </div>
             )}
@@ -109,8 +116,8 @@ const FileListItem: React.FC<FileListItemProps> = ({
           {hasNewName ? `Oryginalnie: ${file.file.name}` : `Artysta: ${displayTags?.artist || 'Brak'}`}
         </p>
          {!supportsTagWriting && hasBeenProcessed && file.state !== ProcessingState.ERROR && (
-            <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 truncate" title="Zapis tagów nie jest obsługiwany dla tego formatu pliku. Plik zostanie tylko przemianowany.">
-                Tylko zmiana nazwy
+            <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 truncate">
+                Tylko zmiana nazwy (Format nieobsługiwany)
             </p>
         )}
         {file.state === ProcessingState.ERROR && (

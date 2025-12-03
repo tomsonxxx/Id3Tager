@@ -25,6 +25,19 @@ export interface ID3Tags {
   encodedBy?: string;
   originalArtist?: string;
   discNumber?: string; // Can be "1" or "1/2"
+  
+  // DJ / Technical Fields
+  bpm?: number; // Beats Per Minute
+  initialKey?: string; // Musical Key (e.g., "11B", "Am")
+  energy?: number; // 1-10
+  danceability?: number; // 1-10
+  
+  // Advanced AI Fields
+  confidence?: 'high' | 'medium' | 'low'; // AI confidence score
+  isrc?: string; // International Standard Recording Code
+  releaseType?: 'album' | 'single' | 'compilation' | 'ep' | 'remix';
+  recordLabel?: string;
+  dataOrigin?: 'ai-inference' | 'google-search' | 'file-metadata';
 }
 
 export interface AudioFile {

@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { AudioFile } from '../types';
 import AlbumCover from './AlbumCover';
 // @ts-ignore
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, Legend } from 'recharts';
 // @ts-ignore
 import _ from 'lodash';
 
@@ -23,12 +23,28 @@ const DetailRow: React.FC<{ label: string; value: string | number | undefined }>
     </div>
 );
 
+const ProgressBar: React.FC<{ label: string; value: number | undefined; color: string }> = ({ label, value, color }) => {
+    const safeValue = Math.min(Math.max(value || 0, 0), 10);
+    return (
+        <div className="py-2">
+            <div className="flex justify-between mb-1">
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{label}</span>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{safeValue}/10</span>
+            </div>
+            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+                <div className={`h-2 rounded-full ${color}`} style={{ width: `${(safeValue / 10) * 100}%` }}></div>
+            </div>
+        </div>
+    );
+};
+
 const RightPanel: React.FC<RightPanelProps> = ({ file, allFiles, onRenamePatternSettings }) => {
   
   // -- Statistics Calculation --
   const stats = useMemo(() => {
     if (allFiles.length === 0) return null;
 
+    // 1. Genres
     const genreCounts = _.countBy(allFiles, (f: AudioFile) => {
         const g = (f.fetchedTags?.genre || f.originalTags?.genre || 'Nieznany').toLowerCase();
         // Capitalize first letter
@@ -40,6 +56,7 @@ const RightPanel: React.FC<RightPanelProps> = ({ file, allFiles, onRenamePattern
         .sort((a: any, b: any) => b.value - a.value)
         .slice(0, 8); // Top 8
 
+    // 2. Decades
     const yearCounts = _.countBy(allFiles, (f: AudioFile) => {
         const y = f.fetchedTags?.year || f.originalTags?.year;
         return y ? y.substring(0, 3) + '0s' : 'Nieznany';
@@ -49,7 +66,33 @@ const RightPanel: React.FC<RightPanelProps> = ({ file, allFiles, onRenamePattern
         .map(([name, value]) => ({ name, value }))
         .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
-    return { genreData, yearData, total: allFiles.length };
+    // 3. BPM Ranges
+    const bpmGroups = {
+        'Slow (<100)': 0,
+        'Mid (100-119)': 0,
+        'House (120-129)': 0,
+        'Trance (130-139)': 0,
+        'Fast (140+)': 0
+    };
+
+    allFiles.forEach(f => {
+        const bpm = f.fetchedTags?.bpm || f.originalTags?.bpm;
+        if (!bpm) return;
+        const val = typeof bpm === 'string' ? parseInt(bpm, 10) : bpm;
+        if (isNaN(val)) return;
+        
+        if (val < 100) bpmGroups['Slow (<100)']++;
+        else if (val < 120) bpmGroups['Mid (100-119)']++;
+        else if (val < 130) bpmGroups['House (120-129)']++;
+        else if (val < 140) bpmGroups['Trance (130-139)']++;
+        else bpmGroups['Fast (140+)']++;
+    });
+
+    const bpmData = Object.entries(bpmGroups)
+        .map(([name, value]) => ({ name, value }))
+        .filter((item: any) => item.value > 0);
+
+    return { genreData, yearData, bpmData, total: allFiles.length };
   }, [allFiles]);
 
 
@@ -75,60 +118,65 @@ const RightPanel: React.FC<RightPanelProps> = ({ file, allFiles, onRenamePattern
                                 <div className="flex justify-center mb-1">
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                                 </div>
-                                <div className="text-xs text-slate-500">Ustaw Wzór Nazw</div>
+                                <div className="text-xs text-slate-500">Wzór Nazw</div>
                              </div>
                         </div>
 
                         {/* Genres Chart */}
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Gatunki</h3>
-                            <div className="h-48 w-full">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                            data={stats.genreData}
-                                            innerRadius={40}
-                                            outerRadius={70}
-                                            paddingAngle={5}
-                                            dataKey="value"
-                                        >
-                                            {stats.genreData.map((entry: any, index: number) => (
-                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                            ))}
-                                        </Pie>
-                                        <Tooltip 
-                                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }} 
-                                            itemStyle={{ color: '#fff' }}
-                                        />
-                                    </PieChart>
-                                </ResponsiveContainer>
+                        {stats.genreData.length > 0 && (
+                            <div>
+                                <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Gatunki</h3>
+                                <div className="h-48 w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie
+                                                data={stats.genreData}
+                                                innerRadius={40}
+                                                outerRadius={70}
+                                                paddingAngle={5}
+                                                dataKey="value"
+                                            >
+                                                {stats.genreData.map((entry: any, index: number) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip 
+                                                contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff', fontSize: '12px' }} 
+                                                itemStyle={{ color: '#fff' }}
+                                            />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                    {stats.genreData.slice(0, 4).map((entry: any, index: number) => (
+                                        <div key={entry.name} className="flex items-center text-xs text-slate-500">
+                                            <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                                            {entry.name}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                            <div className="flex flex-wrap gap-2 justify-center">
-                                {stats.genreData.slice(0, 4).map((entry: any, index: number) => (
-                                    <div key={entry.name} className="flex items-center text-xs text-slate-500">
-                                        <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                                        {entry.name}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        )}
 
-                        {/* Decades Chart */}
-                         <div>
-                            <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Dekady</h3>
-                            <div className="h-40 w-full">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={stats.yearData}>
-                                        <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} />
-                                        <Tooltip 
-                                            cursor={{fill: 'rgba(255,255,255,0.05)'}}
-                                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }} 
-                                        />
-                                        <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
+                        {/* BPM Ranges Chart */}
+                         {stats.bpmData.length > 0 && (
+                            <div>
+                                <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Zakresy BPM</h3>
+                                <div className="h-40 w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={stats.bpmData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                            <XAxis type="number" hide />
+                                            <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 9, fill: '#94a3b8'}} interval={0} />
+                                            <Tooltip 
+                                                cursor={{fill: 'rgba(255,255,255,0.05)'}}
+                                                contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff', fontSize: '12px' }} 
+                                            />
+                                            <Bar dataKey="value" fill="#10b981" radius={[0, 4, 4, 0]} barSize={12} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 ) : (
                     <div className="text-center py-10">
@@ -156,32 +204,28 @@ const RightPanel: React.FC<RightPanelProps> = ({ file, allFiles, onRenamePattern
         <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-tight mb-1">{tags.title || file.file.name}</h2>
         <p className="text-indigo-600 dark:text-indigo-400 font-medium text-lg mb-4">{tags.artist || 'Nieznany wykonawca'}</p>
 
-        <dl className="mt-6">
+        <div className="mb-6">
+            <ProgressBar label="Energia" value={tags.energy} color="bg-orange-500" />
+            <ProgressBar label="Taneczność" value={tags.danceability} color="bg-purple-500" />
+        </div>
+
+        <dl className="mt-2">
             <DetailRow label="Album" value={tags.album} />
             <DetailRow label="Gatunek" value={tags.genre} />
             <DetailRow label="Rok" value={tags.year} />
-            <DetailRow label="BPM / Klucz" value="-" />
-            <DetailRow label="Ścieżka pliku" value={file.webkitRelativePath || file.file.name} />
+            <div className="grid grid-cols-2 gap-4">
+                <DetailRow label="BPM" value={tags.bpm} />
+                <DetailRow label="Klucz" value={tags.initialKey} />
+            </div>
             
             <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Metadane Pliku</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Szczegóły Pliku</h3>
                 <div className="grid grid-cols-2 gap-4">
-                     <div>
-                        <dt className="text-xs text-slate-500">Bitrate</dt>
-                        <dd className="text-xs text-slate-300">{tags.bitrate ? `${tags.bitrate} kbps` : '-'}</dd>
-                     </div>
-                     <div>
-                        <dt className="text-xs text-slate-500">Sample Rate</dt>
-                        <dd className="text-xs text-slate-300">{tags.sampleRate ? `${tags.sampleRate} Hz` : '-'}</dd>
-                     </div>
-                     <div>
-                        <dt className="text-xs text-slate-500">Rozmiar</dt>
-                        <dd className="text-xs text-slate-300">{(file.file.size / (1024*1024)).toFixed(2)} MB</dd>
-                     </div>
-                     <div>
-                        <dt className="text-xs text-slate-500">Typ</dt>
-                        <dd className="text-xs text-slate-300">{file.file.type}</dd>
-                     </div>
+                     <DetailRow label="Rozmiar" value={`${(file.file.size / (1024*1024)).toFixed(2)} MB`} />
+                     <DetailRow label="Typ" value={file.file.type.split('/')[1]?.toUpperCase() || 'AUDIO'} />
+                </div>
+                <div className="mt-2 text-xs text-slate-400 truncate" title={file.webkitRelativePath}>
+                    {file.webkitRelativePath || file.file.name}
                 </div>
             </div>
         </dl>

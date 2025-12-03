@@ -13,6 +13,7 @@ declare const mp4TagWriter: any;
  * Checks if writing tags is supported for a given file type.
  * MP3 support is provided by 'js-id3-writer'.
  * M4A/MP4 support is provided by 'mp4-tag-writer'.
+ * FLAC and WAV are NOT supported for writing tags (renaming only).
  * @param file The file to check.
  * @returns True if tag writing is supported, false otherwise.
  */
@@ -46,6 +47,8 @@ export const readID3Tags = (file: File): Promise<ID3Tags> => {
         console.debug(`Skipping tag read for unsupported format: ${fileName}`);
         return resolve({});
     }
+    
+    // Note: FLAC IS supported by newer jsmediatags, so we allow it.
 
     jsmediatags.read(file, {
       onSuccess: (tag: any) => {
@@ -71,6 +74,12 @@ export const readID3Tags = (file: File): Promise<ID3Tags> => {
         if (tagData.TPOS?.data) tags.discNumber = tagData.TPOS.data;
         else if(tagData.DISCNUMBER) tags.discNumber = tagData.DISCNUMBER;
         
+        // DJ Specific Tags
+        // TBPM is BPM
+        if (tagData.TBPM?.data) tags.bpm = parseInt(tagData.TBPM.data, 10);
+        // TKEY is Initial Key
+        if (tagData.TKEY?.data) tags.initialKey = tagData.TKEY.data;
+
         // Other specific frames
         if (tagData.TCOM?.data) tags.composer = tagData.TCOM.data;
         else if(tagData.COMPOSER) tags.composer = tagData.COMPOSER;
@@ -161,6 +170,11 @@ const applyID3TagsToFile = async (fileBuffer: ArrayBuffer, tags: ID3Tags): Promi
     if (tags.originalArtist) writer.setFrame('TOPE', [tags.originalArtist]);
     if (tags.discNumber) writer.setFrame('TPOS', tags.discNumber);
     
+    // DJ Tags
+    if (tags.bpm) writer.setFrame('TBPM', String(tags.bpm));
+    if (tags.initialKey) writer.setFrame('TKEY', tags.initialKey);
+    if (tags.recordLabel) writer.setFrame('TPUB', tags.recordLabel);
+    
     if (tags.albumCoverUrl) {
         try {
             let coverBuffer: ArrayBuffer;
@@ -209,7 +223,7 @@ const applyMP4TagsToFile = async (fileBuffer: ArrayBuffer, tags: ID3Tags): Promi
     if (tags.albumArtist) writer.setAlbumArtist(tags.albumArtist);
     if (tags.composer) writer.setComposer(tags.composer);
     if (tags.encodedBy) writer.setEncoder(tags.encodedBy);
-
+    
     // Track and Disc numbers
     if (tags.trackNumber) {
         const parts = String(tags.trackNumber).split('/');

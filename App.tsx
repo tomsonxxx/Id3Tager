@@ -218,7 +218,7 @@ const App: React.FC = () => {
                         if(confirm('Wyczyścić całą bibliotekę?')) setFiles([]);
                     }}
                     onRename={() => setModalState({ type: 'rename' })}
-                    onFindDuplicates={() => { /* Placeholder for future duplicate logic hook connection */ }}
+                    onFindDuplicates={() => { /* Placeholder */ }}
                     onExportCsv={() => { /* Placeholder */ }}
                     
                     selectedCount={selectedFileIds.length}

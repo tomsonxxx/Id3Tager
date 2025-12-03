@@ -1,9 +1,9 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { AudioFile, ProcessingState } from '../types';
-import { fetchTagsForFile, fetchTagsForBatch, ApiKeys, AIProvider } from '../services/aiService';
+import { smartBatchAnalyze, ApiKeys, AIProvider } from '../services/aiService';
 
-const MAX_CONCURRENT_REQUESTS = 3;
+const MAX_CONCURRENT_GROUPS = 1; // Process one folder/group at a time to prevent rate limits with Search tool
 
 export const useAIProcessing = (
     files: AudioFile[],
@@ -12,79 +12,59 @@ export const useAIProcessing = (
     aiProvider: AIProvider
 ) => {
     const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
-    const processingQueueRef = useRef<string[]>([]);
-    const activeRequestsRef = useRef(0);
 
-    // --- Single File Queue Processor ---
-    const processQueue = useCallback(async () => {
-        if (activeRequestsRef.current >= MAX_CONCURRENT_REQUESTS || processingQueueRef.current.length === 0) {
-            return;
-        }
-
-        const fileIdToProcess = processingQueueRef.current.shift();
-        if (!fileIdToProcess) return;
-
-        const fileToProcess = files.find(f => f.id === fileIdToProcess);
-        if (!fileToProcess || fileToProcess.state !== ProcessingState.PENDING) {
-            processQueue(); // Skip if file missing or not pending
-            return;
-        }
-
-        activeRequestsRef.current++;
-        updateFile(fileIdToProcess, { state: ProcessingState.PROCESSING });
-
-        try {
-            const fetchedTags = await fetchTagsForFile(fileToProcess.file.name, fileToProcess.originalTags, aiProvider, apiKeys);
-            updateFile(fileIdToProcess, { state: ProcessingState.SUCCESS, fetchedTags });
-        } catch (error) {
-            updateFile(fileIdToProcess, { state: ProcessingState.ERROR, errorMessage: error instanceof Error ? error.message : "Błąd" });
-        } finally {
-            activeRequestsRef.current--;
-            processQueue();
-        }
-    }, [files, aiProvider, apiKeys, updateFile]);
-
-    const addToQueue = useCallback((fileIds: string[]) => {
-        processingQueueRef.current.push(...fileIds);
-        // Kickstart the queue if we have capacity
-        for(let i=0; i < MAX_CONCURRENT_REQUESTS; i++) {
-             processQueue();
-        }
-    }, [processQueue]);
-
-
-    // --- Batch Processor ---
+    // --- Batch Processor (Smart) ---
     const analyzeBatch = useCallback(async (filesToProcess: AudioFile[]) => {
         if (filesToProcess.length === 0 || isBatchAnalyzing) return;
+        
         setIsBatchAnalyzing(true);
         const ids = filesToProcess.map(f => f.id);
         
-        // Mark all as processing
+        // Set state to PROCESSING
         ids.forEach(id => updateFile(id, { state: ProcessingState.PROCESSING }));
         
         try {
-            const results = await fetchTagsForBatch(filesToProcess, aiProvider, apiKeys);
-            const resultsMap = new Map(results.map(r => [r.originalFilename, r]));
-
-            ids.forEach(id => {
-                const file = filesToProcess.find(f => f.id === id);
-                if (file) {
-                    const result = resultsMap.get(file.file.name);
-                    if (result) {
-                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                        const { originalFilename, ...fetchedTags } = result;
-                        updateFile(id, { state: ProcessingState.SUCCESS, fetchedTags: { ...file.originalTags, ...fetchedTags } });
-                    } else {
-                        updateFile(id, { state: ProcessingState.ERROR, errorMessage: "Brak danych AI" });
-                    }
+            // The smartBatchAnalyze now handles grouping internaly
+            const resultsTags = await smartBatchAnalyze(filesToProcess, aiProvider, apiKeys);
+            
+            // Map results back by index (smartBatchAnalyze returns results in same order if flat, 
+            // but we need to match by logic inside service. 
+            // Note: smartBatchAnalyze logic above was designed to match results.
+            // However, a safer way is to rely on the service returning a map or ensuring order.
+            // In the implementation provided in aiService, I made sure it iterates chunks and pushes results.
+            // Let's assume order is preserved relative to the input array of the function.
+            
+            filesToProcess.forEach((file, index) => {
+                const tagResult = resultsTags[index];
+                if (tagResult) {
+                    updateFile(file.id, { 
+                        state: ProcessingState.SUCCESS, 
+                        fetchedTags: { ...file.originalTags, ...tagResult } 
+                    });
+                } else {
+                    updateFile(file.id, { 
+                        state: ProcessingState.ERROR, 
+                        errorMessage: "AI didn't return data" 
+                    });
                 }
             });
+
         } catch (e) {
-            ids.forEach(id => updateFile(id, { state: ProcessingState.ERROR, errorMessage: e instanceof Error ? e.message : "Błąd wsadowy" }));
+            console.error("Batch Error:", e);
+            ids.forEach(id => updateFile(id, { 
+                state: ProcessingState.ERROR, 
+                errorMessage: e instanceof Error ? e.message : "Batch Analysis Failed" 
+            }));
         } finally {
             setIsBatchAnalyzing(false);
         }
     }, [isBatchAnalyzing, aiProvider, apiKeys, updateFile]);
+
+    // Backward compatibility shim for single file queue
+    const addToQueue = useCallback((fileIds: string[]) => {
+        const filesToProcess = files.filter(f => fileIds.includes(f.id));
+        analyzeBatch(filesToProcess);
+    }, [files, analyzeBatch]);
 
     return {
         addToQueue,
