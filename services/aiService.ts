@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { AudioFile, ID3Tags } from '../types';
+import { AudioFile, ID3Tags, AnalysisSettings } from '../types';
 import { getCachedAnalysis, cacheAnalysisResult } from './cacheService';
 
 export type AIProvider = 'gemini' | 'grok' | 'openai';
@@ -12,20 +12,20 @@ export interface ApiKeys {
 
 // --- SYSTEM INSTRUCTIONS ---
 
-const getSystemInstruction = () => {
+const getSystemInstruction = (settings?: AnalysisSettings) => {
+  const modeInstruction = settings?.mode === 'creative' 
+    ? "You are allowed to be more interpretive with genres and moods." 
+    : "Be strict and factual. Do not hallucinate.";
+
   return `You are "Lumbago Supervisor", an elite music archivist and DJ librarian AI.
 Your goal is to repair, organize, and enrich metadata for music files with professional accuracy, specifically for DJs and collectors.
 
 CAPABILITIES:
 1.  **Google Search Grounding:** You MUST use the provided Google Search tool to verify facts. Do not guess release dates or tracklists. Search for "Artist Title Discogs", "Artist Album Beatport", or "Artist Title MusicBrainz" to confirm data.
-2.  **DJ Technical Data:** You must attempt to find technical details used by DJs:
-    *   **BPM:** Beats Per Minute (Integer).
-    *   **Initial Key:** Use Camelot Notation (e.g., "11B", "8A") if available.
-    *   **Energy & Danceability:** Estimate these values on a scale of 1-10 based on the track's genre and characteristics.
-    *   **Label:** The Record Label for the specific release.
-3.  **Context Awareness:** You will receive batches of files grouped by folder. Treat them as a coherent release (Album/EP) unless obvious otherwise. Ensure consistency for 'Album', 'Year', 'Album Artist', 'Genre', and 'Label' across the group.
+2.  **Context Awareness:** You will receive batches of files grouped by folder. Treat them as a coherent release (Album/EP) unless obvious otherwise. Ensure consistency for 'Album', 'Year', 'Album Artist', 'Genre', and 'Label' across the group.
 
 RULES:
+-   ${modeInstruction}
 -   **Prioritize Original Releases:** Unless it's explicitly a "Greatest Hits", try to tag against the original studio album or single release.
 -   **Format:** Return pure JSON Array.
 -   **Confidence:** Set 'confidence' to 'high' ONLY if you verified the data with Google Search.
@@ -33,7 +33,6 @@ RULES:
 
 SCHEMA EXPLANATION:
 -   trackNumber: Format as "X" or "X/Total".
--   isrc: The International Standard Recording Code.
 -   initialKey: Camelot notation (e.g., "11B").
 -   energy: 1 (Chill) to 10 (Banger).
 -   danceability: 1 (Ambient) to 10 (Club).
@@ -69,7 +68,8 @@ export const fetchTagsForFile = async (
     fileName: string,
     originalTags: ID3Tags,
     provider: AIProvider,
-    apiKeys: ApiKeys
+    apiKeys: ApiKeys,
+    settings?: AnalysisSettings
 ): Promise<ID3Tags> => {
     // For single file, we wrap it in a pseudo-batch of 1
     const result = await smartBatchAnalyze([{
@@ -77,7 +77,7 @@ export const fetchTagsForFile = async (
         file: new File([], fileName), 
         originalTags: originalTags, 
         state: 'PENDING' 
-    } as AudioFile], provider, apiKeys);
+    } as AudioFile], provider, apiKeys, false, settings);
     
     return result[0] || originalTags;
 };
@@ -91,7 +91,8 @@ export const smartBatchAnalyze = async (
     files: AudioFile[],
     provider: AIProvider,
     apiKeys: ApiKeys,
-    forceUpdate: boolean = false
+    forceUpdate: boolean = false,
+    settings?: AnalysisSettings
 ): Promise<ID3Tags[]> => {
     if (provider !== 'gemini') {
         throw new Error("Only Gemini supports advanced Smart Batching currently.");
@@ -151,52 +152,68 @@ export const smartBatchAnalyze = async (
 
             const folderContext = groupKey !== 'root' ? `These files are in folder: "${groupKey}". Use this to infer Album/Artist.` : "These files are loose/flat files.";
 
-            const prompt = `
-CONTEXT: ${folderContext}
-TASK: Analyze these ${chunk.length} audio files.
-Use Google Search to confirm details. Look for Beatport, Discogs, or MusicBrainz data for BPM, Key, Energy, and Label.
-
-IMPORTANT: You must return valid JSON ONLY. Output a JSON Array of objects.
-Do not use markdown code blocks like \`\`\`json. Just the raw JSON string.
-
-Schema per item:
+            // Dynamic Schema Construction based on Settings
+            const fields = settings?.fields || { bpm: true, key: true, genre: true, year: true, label: true, energy: true, danceability: true, mood: true, isrc: false };
+            
+            let schemaJson = `
 {
   "originalFilename": "string (EXACT match from input)",
   "artist": "string",
   "title": "string",
-  "album": "string",
-  "year": "string",
-  "genre": "string",
-  "bpm": number (integer),
-  "initialKey": "string (Camelot)",
-  "energy": number (1-10),
-  "danceability": number (1-10),
-  "recordLabel": "string",
-  "albumCoverUrl": "string (URL found via search)",
+  "album": "string",`;
+            
+            if (fields.year) schemaJson += `\n  "year": "string",`;
+            if (fields.genre) schemaJson += `\n  "genre": "string",`;
+            if (fields.bpm) schemaJson += `\n  "bpm": number (integer),`;
+            if (fields.key) schemaJson += `\n  "initialKey": "string (Camelot)",`;
+            if (fields.energy) schemaJson += `\n  "energy": number (1-10),`;
+            if (fields.danceability) schemaJson += `\n  "danceability": number (1-10),`;
+            if (fields.mood) schemaJson += `\n  "mood": "string",`;
+            if (fields.label) schemaJson += `\n  "recordLabel": "string",`;
+            if (fields.isrc) schemaJson += `\n  "isrc": "string",`;
+
+            schemaJson += `\n  "albumCoverUrl": "string (URL found via search)",
   "confidence": "high" | "medium" | "low"
-}
+}`;
+
+            const prompt = `
+CONTEXT: ${folderContext}
+TASK: Analyze these ${chunk.length} audio files.
+Use Google Search to confirm details. Look for Beatport, Discogs, or MusicBrainz data.
+
+IMPORTANT: You must return valid JSON ONLY. Output a JSON Array of objects.
+Do not use markdown code blocks like \`\`\`json. Just the raw JSON string.
+
+Requested Schema per item:
+${schemaJson}
 
 FILES:
 ${fileListStr}
             `;
 
             try {
+                // Determine model based on mode
+                let modelName = "gemini-2.5-flash";
+                if (settings?.mode === 'accurate') {
+                    // Could switch to Pro if available/needed, staying on Flash for now but with different params
+                    // modelName = "gemini-1.5-pro"; 
+                }
+
                 const response = await callGeminiWithRetry(() => 
                     ai.models.generateContent({
-                        model: "gemini-2.5-flash",
+                        model: modelName,
                         contents: prompt,
                         config: {
-                            systemInstruction: getSystemInstruction(),
+                            systemInstruction: getSystemInstruction(settings),
                             tools: [{ googleSearch: {} }], // ENABLE INTERNET ACCESS
-                            // CRITICAL: responseMimeType: 'application/json' IS NOT SUPPORTED WITH TOOLS.
-                            // We rely on the prompt to enforce JSON structure.
+                            temperature: settings?.mode === 'creative' ? 0.7 : 0.1,
                         }
                     })
                 );
 
                 let text = response.text || "[]";
                 
-                // Sanitize JSON output: remove markdown code blocks if the model ignores the "no markdown" instruction
+                // Sanitize JSON output: remove markdown code blocks
                 text = text.replace(/```json\n?/g, '').replace(/```/g, '').trim();
 
                 let parsed: any[] = [];
@@ -220,7 +237,7 @@ ${fileListStr}
                     parsed = [];
                 }
 
-                // Map results back to original files (order isn't guaranteed, use filename)
+                // Map results back to original files
                 chunk.forEach(originalFile => {
                     const match = parsed.find((p: any) => p.originalFilename === originalFile.file.name);
                     if (match) {
@@ -235,19 +252,18 @@ ${fileListStr}
                             dataOrigin: forceUpdate ? 'google-search' : 'ai-inference' 
                         };
                         
-                        // Save to Cache for future use
+                        // Save to Cache
                         cacheAnalysisResult(originalFile.file, resultTag);
                         
                         finalResultsMap[originalFile.id] = resultTag;
                     } else {
-                        // Fallback: return original tags if AI skipped it
+                        // Fallback
                         finalResultsMap[originalFile.id] = originalFile.originalTags;
                     }
                 });
 
             } catch (err) {
                 console.error(`Error processing batch group ${groupKey}:`, err);
-                // On error, push nulls or originals so we don't crash
                 chunk.forEach(f => {
                     finalResultsMap[f.id] = f.originalTags;
                 });
@@ -255,13 +271,12 @@ ${fileListStr}
         }
     }
 
-    // Return results in the original order
     return files.map(f => finalResultsMap[f.id]);
 };
 
 // Re-export for compatibility
-export const fetchTagsForBatch = async (files: AudioFile[], provider: AIProvider, keys: ApiKeys) => {
-    const tags = await smartBatchAnalyze(files, provider, keys);
+export const fetchTagsForBatch = async (files: AudioFile[], provider: AIProvider, keys: ApiKeys, settings?: AnalysisSettings) => {
+    const tags = await smartBatchAnalyze(files, provider, keys, false, settings);
     return tags.map((t, idx) => ({ ...t, originalFilename: files[idx].file.name }));
 };
 
@@ -285,7 +300,6 @@ export const generateCoverArt = async (prompt: string, size: '1K' | '2K'): Promi
                     aspectRatio: "1:1",
                     imageSize: size
                 },
-                // Do NOT set responseMimeType or tools for image generation models like this one
             },
         });
 

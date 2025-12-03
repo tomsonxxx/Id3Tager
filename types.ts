@@ -72,3 +72,18 @@ export interface Playlist {
 }
 
 export type GroupKey = 'artist' | 'album' | 'none';
+
+export interface AnalysisSettings {
+  fields: {
+    bpm: boolean;
+    key: boolean;
+    genre: boolean;
+    year: boolean;
+    label: boolean;
+    energy: boolean;
+    danceability: boolean;
+    mood: boolean;
+    isrc: boolean;
+  };
+  mode: 'fast' | 'accurate' | 'creative';
+}

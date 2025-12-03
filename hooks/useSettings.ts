@@ -1,6 +1,22 @@
 
 import { useState, useEffect } from 'react';
 import { ApiKeys, AIProvider } from '../services/aiService';
+import { AnalysisSettings } from '../types';
+
+const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
+  fields: {
+    bpm: true,
+    key: true,
+    genre: true,
+    year: true,
+    label: true,
+    energy: true,
+    danceability: true,
+    mood: true,
+    isrc: false
+  },
+  mode: 'accurate'
+};
 
 export const useSettings = () => {
   // Theme
@@ -18,6 +34,12 @@ export const useSettings = () => {
   // Rename Pattern
   const [renamePattern, setRenamePattern] = useState<string>(() => localStorage.getItem('renamePattern') || '[artist] - [title]');
 
+  // Analysis Settings
+  const [analysisSettings, setAnalysisSettings] = useState<AnalysisSettings>(() => {
+    const saved = localStorage.getItem('analysisSettings');
+    return saved ? { ...DEFAULT_ANALYSIS_SETTINGS, ...JSON.parse(saved) } : DEFAULT_ANALYSIS_SETTINGS;
+  });
+
   useEffect(() => {
     localStorage.setItem('theme', theme);
     document.documentElement.className = theme;
@@ -27,7 +49,8 @@ export const useSettings = () => {
     localStorage.setItem('apiKeys', JSON.stringify(apiKeys));
     localStorage.setItem('aiProvider', aiProvider);
     localStorage.setItem('renamePattern', renamePattern);
-  }, [apiKeys, aiProvider, renamePattern]);
+    localStorage.setItem('analysisSettings', JSON.stringify(analysisSettings));
+  }, [apiKeys, aiProvider, renamePattern, analysisSettings]);
 
   return {
     theme,
@@ -37,6 +60,8 @@ export const useSettings = () => {
     aiProvider,
     setAiProvider,
     renamePattern,
-    setRenamePattern
+    setRenamePattern,
+    analysisSettings,
+    setAnalysisSettings
   };
 };

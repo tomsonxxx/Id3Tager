@@ -70,7 +70,8 @@ async function* getFilesRecursively(entry: any): AsyncGenerator<{ file: File, ha
 const App: React.FC = () => {
     // --- State Management via Hooks ---
     const { 
-        theme, setTheme, apiKeys, setApiKeys, aiProvider, setAiProvider, renamePattern, setRenamePattern 
+        theme, setTheme, apiKeys, setApiKeys, aiProvider, setAiProvider, renamePattern, setRenamePattern,
+        analysisSettings, setAnalysisSettings
     } = useSettings();
 
     const {
@@ -86,7 +87,7 @@ const App: React.FC = () => {
 
     const { 
         analyzeBatch, isBatchAnalyzing 
-    } = useAIProcessing(files, updateFile, apiKeys, aiProvider);
+    } = useAIProcessing(files, updateFile, apiKeys, aiProvider, analysisSettings);
 
     // --- Local App State ---
     const [isSaving, setIsSaving] = useState(false);
@@ -541,7 +542,22 @@ const App: React.FC = () => {
                 </div>
             )}
             
-            {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(k, p) => { setApiKeys(k); setAiProvider(p); setModalState({type: 'none'}); addToast('Zapisano ustawienia', 'success'); }} currentKeys={apiKeys} currentProvider={aiProvider} />}
+            {modalState.type === 'settings' && (
+                <SettingsModal 
+                    isOpen={true} 
+                    onClose={() => setModalState({ type: 'none' })} 
+                    onSave={(k, p, as) => { 
+                        setApiKeys(k); 
+                        setAiProvider(p); 
+                        setAnalysisSettings(as); 
+                        setModalState({type: 'none'}); 
+                        addToast('Zapisano ustawienia', 'success'); 
+                    }} 
+                    currentKeys={apiKeys} 
+                    currentProvider={aiProvider}
+                    currentAnalysisSettings={analysisSettings}
+                />
+            )}
             {modalState.type === 'batch-edit' && <BatchEditModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => { 
                 const ids = selectedFileIds;
                 ids.forEach(id => updateFile(id, { fetchedTags: { ...(files.find(f => f.id === id)?.fetchedTags || {}), ...tags } }));

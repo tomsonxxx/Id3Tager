@@ -1,6 +1,6 @@
 
 import { useState, useRef, useCallback } from 'react';
-import { AudioFile, ProcessingState } from '../types';
+import { AudioFile, ProcessingState, AnalysisSettings } from '../types';
 import { smartBatchAnalyze, ApiKeys, AIProvider } from '../services/aiService';
 
 const MAX_CONCURRENT_GROUPS = 1; // Process one folder/group at a time to prevent rate limits with Search tool
@@ -9,7 +9,8 @@ export const useAIProcessing = (
     files: AudioFile[],
     updateFile: (id: string, updates: Partial<AudioFile>) => void,
     apiKeys: ApiKeys,
-    aiProvider: AIProvider
+    aiProvider: AIProvider,
+    analysisSettings?: AnalysisSettings
 ) => {
     const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
 
@@ -25,7 +26,7 @@ export const useAIProcessing = (
         
         try {
             // The smartBatchAnalyze now handles grouping internaly
-            const resultsTags = await smartBatchAnalyze(filesToProcess, aiProvider, apiKeys, forceUpdate);
+            const resultsTags = await smartBatchAnalyze(filesToProcess, aiProvider, apiKeys, forceUpdate, analysisSettings);
             
             // Map results back by index (smartBatchAnalyze returns results in same order if flat, 
             // but we need to match by logic inside service. 
@@ -55,7 +56,7 @@ export const useAIProcessing = (
         } finally {
             setIsBatchAnalyzing(false);
         }
-    }, [isBatchAnalyzing, aiProvider, apiKeys, updateFile]);
+    }, [isBatchAnalyzing, aiProvider, apiKeys, updateFile, analysisSettings]);
 
     // Backward compatibility shim for single file queue
     const addToQueue = useCallback((fileIds: string[]) => {
