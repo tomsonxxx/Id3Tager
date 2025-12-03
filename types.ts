@@ -1,3 +1,4 @@
+
 export enum ProcessingState {
   PENDING = 'PENDING',
   PROCESSING = 'PROCESSING',
@@ -38,6 +39,7 @@ export interface AudioFile {
   dateAdded: number;
   handle?: any; // FileSystemFileHandle for direct saving
   webkitRelativePath?: string; // The relative path of the file within the directory
+  duplicateSetId?: string; // ID to group duplicate files
 }
 
 export type GroupKey = 'artist' | 'album' | 'none';

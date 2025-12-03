@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+// Fix: Correct import path
 import { AudioFile, ID3Tags } from '../types';
 
 interface BatchEditModalProps {
@@ -25,6 +26,7 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
     for (const key of editableTagKeys) {
         const firstValue = firstFileTags[key];
         if (files.every(f => (f.fetchedTags?.[key] ?? '') === (firstValue ?? ''))) {
+            // Fix: Help TypeScript understand that the key determines the value type to avoid an incorrect "not assignable to never" error.
             if (key === 'bitrate' || key === 'sampleRate') {
                 if (typeof firstValue === 'number' || typeof firstValue === 'undefined') {
                   result[key] = firstValue;
@@ -63,6 +65,8 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
     const tagsToApply: Partial<ID3Tags> = {};
     for (const key of editableTagKeys) {
         if (fieldsToUpdate[key]) {
+            // Fix: Help TypeScript understand the type relationship by splitting the assignment
+            // based on the key, avoiding the "not assignable to never" error.
             if (key === 'bitrate' || key === 'sampleRate') {
                 tagsToApply[key] = tags[key] || undefined;
             } else {

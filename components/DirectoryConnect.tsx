@@ -1,12 +1,15 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 
 interface DirectoryConnectProps {
     onDirectoryConnect: (handle: any) => void;
 }
 
 const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect }) => {
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const handleConnect = async () => {
+        setErrorMessage(null);
         try {
             // First, try the brokered API provided by the platform (e.g., AI Studio)
             const aistudioPicker = (window as any).aistudio?.showDirectoryPicker;
@@ -38,13 +41,13 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
             }
     
             // Specifically handle the SecurityError that occurs in sandboxed iframes.
-            if (err.name === 'SecurityError') {
+            if (err.name === 'SecurityError' || err.message?.includes('Cross origin sub frames')) {
                 console.error('SecurityError while showing directory picker:', err);
-                alert("Dostęp do folderu jest niemożliwy w tym odizolowanym środowisku. Aplikacja nie ma uprawnień do otwierania lokalnych folderów, gdy jest osadzona w innej stronie.");
+                setErrorMessage("Dostęp bezpośredni do plików jest zablokowany w tym środowisku (np. podgląd w ramce/iframe). Użyj standardowego importu (przeciągnij i upuść) powyżej.");
             } else {
                 // Handle other potential errors.
                 console.error('Error connecting to directory:', err);
-                alert(`Nie udało się otworzyć folderu: ${err.message || "Wystąpił nieznany błąd."}`);
+                setErrorMessage(`Nie udało się otworzyć folderu: ${err.message || "Wystąpił nieznany błąd."}`);
             }
         }
     };
@@ -61,6 +64,13 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
             <p className="max-w-md mt-2 text-sm text-center text-slate-600 dark:text-slate-400">
                 Połącz się z lokalnym folderem, aby edytować pliki bezpośrednio na dysku — bez potrzeby pobierania i rozpakowywania archiwów ZIP.
             </p>
+            
+            {errorMessage && (
+                <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-sm rounded-md border border-red-200 dark:border-red-800 max-w-md text-center">
+                    {errorMessage}
+                </div>
+            )}
+
             <button
                 onClick={handleConnect}
                 className="mt-4 px-6 py-2 font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-50 dark:focus:ring-offset-slate-900 focus:ring-indigo-500"

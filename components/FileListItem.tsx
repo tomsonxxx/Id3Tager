@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { AudioFile, ProcessingState } from '../types';
 import { StatusIcon } from './StatusIcon';
@@ -13,16 +14,13 @@ interface FileListItemProps {
   onSelectionChange: (fileId: string, isSelected: boolean) => void;
 }
 
-const usePrevious = <T,>(value: T): T | undefined => {
-    // FIX: Explicitly pass `undefined` to `useRef`. The parameter-less overload `useRef()`
-    // can sometimes cause "Expected 1 arguments, but got 0" errors with certain
-    // TypeScript configurations or linter rules.
+function usePrevious<T>(value: T): T | undefined {
     const ref = useRef<T | undefined>(undefined);
     useEffect(() => {
         ref.current = value;
     });
     return ref.current;
-};
+}
 
 
 const FileListItem: React.FC<FileListItemProps> = ({
@@ -71,26 +69,10 @@ const FileListItem: React.FC<FileListItemProps> = ({
     }, 300); // Must match the duration of fade-out animation
   };
 
-  // Określenie tła i ramki w zależności od stanu przetwarzania i zaznaczenia
-  let bgClass = "bg-white dark:bg-slate-800";
-  let borderClass = "border-transparent dark:border-slate-700";
-
-  if (isProcessing) {
-    // Animowany gradient dla aktywnego przetwarzania
-    bgClass = "bg-gradient-to-r from-slate-50 via-indigo-50 to-slate-50 dark:from-slate-800 dark:via-indigo-900/20 dark:to-slate-800 animate-gradient-loading";
-    borderClass = "border-indigo-200 dark:border-indigo-900"; // Subtelna ramka podczas przetwarzania
-  }
-
-  if (file.isSelected) {
-    borderClass = 'border-indigo-500 ring-2 ring-indigo-500/50';
-    // Jeśli zaznaczony, ale nie przetwarzany, zostawiamy standardowe tło (ew. można by dodać lekki tint)
-  }
-
   const itemClasses = [
-      "flex items-center p-3 rounded-lg shadow-sm transition-all duration-300 border",
-      bgClass,
-      borderClass,
-      file.state === ProcessingState.SUCCESS ? 'opacity-70' : '',
+      "flex items-center p-3 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-all duration-300 border",
+      file.isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/50' : 'border-transparent dark:border-slate-700',
+      file.duplicateSetId ? 'bg-amber-50 dark:bg-amber-900/20' : '',
       isExiting ? 'animate-fade-out' : 'animate-fade-in'
   ].join(' ');
 
@@ -108,9 +90,21 @@ const FileListItem: React.FC<FileListItemProps> = ({
         {hasFetchedTags && <TagPreviewTooltip originalTags={file.originalTags} fetchedTags={file.fetchedTags} />}
       </div>
       <div className="flex-grow ml-4 overflow-hidden">
-        <p className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate" title={displayName}>
-            {displayName}
-        </p>
+        <div className="flex items-center gap-2">
+            {file.duplicateSetId && (
+                <div className="flex-shrink-0" title="Potencjalny duplikat">
+                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                           <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0l-1.5-1.5a2 2 0 112.828-2.828l1.5 1.5l3-3a2 2 0 012.828 2.828l-3 3a2 2 0 01-2.828 0l-1.5-1.5a2 2 0 112.828-2.828l1.5 1.5z" clipRule="evenodd" />
+                           <path fillRule="evenodd" d="M7.414 15.414a2 2 0 11-2.828-2.828l3-3a2 2 0 012.828 0l1.5 1.5a2 2 0 11-2.828 2.828l-1.5-1.5-3 3a2 2 0 01-2.828-2.828l3-3a2 2 0 012.828 0l1.5 1.5a2 2 0 11-2.828 2.828l-1.5-1.5z" clipRule="evenodd" />
+                        </svg>
+                     </span>
+                </div>
+            )}
+            <p className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate" title={displayName}>
+                {displayName}
+            </p>
+        </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={file.file.name}>
           {hasNewName ? `Oryginalnie: ${file.file.name}` : `Artysta: ${displayTags?.artist || 'Brak'}`}
         </p>
