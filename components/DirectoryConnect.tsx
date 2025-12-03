@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 
 declare global {
     interface Window {
@@ -12,21 +13,45 @@ interface DirectoryConnectProps {
 
 const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect }) => {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [isIframe, setIsIframe] = useState(false);
+
+    useEffect(() => {
+        // Detect if running inside an iframe to warn user proactively
+        try {
+            if (window.self !== window.top) {
+                setIsIframe(true);
+            }
+        } catch (e) {
+            // Accessing window.top can throw Cross-Origin error itself, implying we are in an iframe
+            setIsIframe(true);
+        }
+    }, []);
 
     const handleConnect = async () => {
         setErrorMessage(null);
+        
+        // Use type assertion to access aistudio which might be defined globally with a specific type
+        const aiStudio = (window as any).aistudio;
+
+        // Proactive check for iframe environment to avoid console errors if possible.
+        // We skip this check if aistudio is present, as it might wrap the API correctly.
+        if (isIframe && !aiStudio) { 
+             setErrorMessage(
+                "⚠️ Tryb bezpośredniego dostępu do folderów jest zablokowany przez zabezpieczenia przeglądarki w oknach podglądu (iframe). " +
+                "Aby skorzystać z tej funkcji, otwórz aplikację w nowej, pełnej karcie przeglądarki."
+            );
+            return;
+        }
+
         try {
             // 1. Try AI Studio brokered API
-            // Cast to any to avoid type conflict with existing AIStudio definition
-            const aistudioPicker = (window as any).aistudio?.showDirectoryPicker;
-            if (typeof aistudioPicker === 'function') {
-                const handle = await aistudioPicker({ mode: 'readwrite' });
+            if (aiStudio && aiStudio.showDirectoryPicker) {
+                const handle = await aiStudio.showDirectoryPicker({ mode: 'readwrite' });
                 onDirectoryConnect(handle);
                 return;
             }
     
             // 2. Try Standard Browser API
-            // We wrap this in a specific try/catch because accessing the property might throw in some sandboxes
             if (typeof window.showDirectoryPicker === 'function') {
                 const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
                 onDirectoryConnect(handle);
@@ -42,12 +67,11 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
             }
     
             // Handle Security/Iframe Restrictions
-            // Chrome throws 'SecurityError' if inside a cross-origin iframe
             if (error.name === 'SecurityError' || error.message?.includes('Cross origin') || error.message?.includes('frame')) {
                 console.error('Directory Access Blocked:', error);
                 setErrorMessage(
-                    "⚠️ Bezpośredni dostęp do folderów jest zablokowany przez zabezpieczenia przeglądarki w tym trybie (np. w oknie podglądu). " +
-                    "Aby użyć tej funkcji, otwórz aplikację w nowej, pełnej karcie lub użyj metody 'Przeciągnij i Upuść' powyżej."
+                    "⚠️ Bezpośredni dostęp do folderów jest zablokowany przez przeglądarkę w tym trybie. " +
+                    "Otwórz aplikację w osobnej karcie lub użyj importu plików (Drag & Drop) powyżej."
                 );
             } else {
                 console.error('Directory Connect Error:', error);
@@ -55,6 +79,8 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
             }
         }
     };
+
+    const aiStudio = (window as any).aistudio;
 
     return (
         <div className="flex flex-col items-center justify-center p-6 bg-slate-100 dark:bg-slate-800/50 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-700">
@@ -77,8 +103,13 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
 
             <button
                 onClick={handleConnect}
-                className="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 shadow-md transition-all active:scale-95"
+                className="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-500 shadow-md transition-all active:scale-95 flex items-center"
             >
+                {isIframe && !aiStudio && (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-indigo-200" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8.257 3.099c.636-1.21 2.852-1.21 3.488 0l6.233 11.896c.64 1.223-.453 2.755-1.744 2.755H3.768c-1.291 0-2.384-1.532-1.744-2.755L8.257 3.099zM10 13a1 1 0 110-2 1 1 0 010 2zm-1-4a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clipRule="evenodd" />
+                    </svg>
+                )}
                 Wybierz Folder
             </button>
         </div>
