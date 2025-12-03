@@ -128,7 +128,8 @@ export const fetchTagsForFile = async (
 export const smartBatchAnalyze = async (
     files: AudioFile[],
     provider: AIProvider,
-    apiKeys: ApiKeys
+    apiKeys: ApiKeys,
+    forceUpdate: boolean = false
 ): Promise<ID3Tags[]> => {
     if (provider !== 'gemini') {
         throw new Error("Only Gemini supports advanced Smart Batching currently.");
@@ -142,14 +143,19 @@ export const smartBatchAnalyze = async (
     const filesToFetch: AudioFile[] = [];
 
     // 1. Check Cache First (Optimization)
-    files.forEach(f => {
-        const cached = getCachedAnalysis(f.file);
-        if (cached) {
-            finalResultsMap[f.id] = cached;
-        } else {
-            filesToFetch.push(f);
-        }
-    });
+    if (!forceUpdate) {
+        files.forEach(f => {
+            const cached = getCachedAnalysis(f.file);
+            if (cached) {
+                finalResultsMap[f.id] = cached;
+            } else {
+                filesToFetch.push(f);
+            }
+        });
+    } else {
+        // If forcing update, process all files
+        files.forEach(f => filesToFetch.push(f));
+    }
 
     // If everything is cached, return immediately
     if (filesToFetch.length === 0) {
@@ -224,7 +230,10 @@ ${fileListStr}
                         });
                         delete match.originalFilename;
                         
-                        const resultTag: ID3Tags = { ...match, dataOrigin: 'ai-inference' };
+                        const resultTag: ID3Tags = { 
+                            ...match, 
+                            dataOrigin: forceUpdate ? 'google-search' : 'ai-inference' 
+                        };
                         
                         // Save to Cache for future use
                         cacheAnalysisResult(originalFile.file, resultTag);

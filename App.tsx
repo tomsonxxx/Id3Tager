@@ -208,7 +208,7 @@ const App: React.FC = () => {
                     onImport={() => setModalState({ type: 'import' })}
                     onSettings={() => setModalState({ type: 'settings' })}
                     onAnalyzeAll={() => analyzeBatch(files.filter(f => f.state !== ProcessingState.SUCCESS))}
-                    onAnalyzeSelected={() => analyzeBatch(selectedFiles)}
+                    onAnalyzeSelected={() => analyzeBatch(selectedFiles, false)}
                     onEdit={() => setModalState({ type: 'batch-edit' })}
                     onExport={() => handleDownloadOrSave()}
                     onDelete={() => {

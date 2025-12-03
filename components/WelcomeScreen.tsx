@@ -1,3 +1,4 @@
+
 import React from 'react';
 import DirectoryConnect from './DirectoryConnect'; // Nowy komponent
 import Roadmap from './Roadmap'; // Nowy komponent

@@ -17,34 +17,32 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
 
     useEffect(() => {
         // Detect if running inside an iframe to warn user proactively
-        try {
-            if (window.self !== window.top) {
-                setIsIframe(true);
+        const checkIframe = () => {
+            try {
+                return window.self !== window.top;
+            } catch (e) {
+                return true;
             }
-        } catch (e) {
-            // Accessing window.top can throw Cross-Origin error itself, implying we are in an iframe
-            setIsIframe(true);
-        }
+        };
+        setIsIframe(checkIframe());
     }, []);
 
     const handleConnect = async () => {
         setErrorMessage(null);
         
-        // Use type assertion to access aistudio which might be defined globally with a specific type
         const aiStudio = (window as any).aistudio;
 
-        // Proactive check for iframe environment to avoid console errors if possible.
-        // We skip this check if aistudio is present, as it might wrap the API correctly.
+        // Proactive check: If we are in an iframe and no bridge exists, warn immediately.
         if (isIframe && !aiStudio) { 
              setErrorMessage(
-                "⚠️ Tryb bezpośredniego dostępu do folderów jest zablokowany przez zabezpieczenia przeglądarki w oknach podglądu (iframe). " +
-                "Aby skorzystać z tej funkcji, otwórz aplikację w nowej, pełnej karcie przeglądarki."
+                "⚠️ Dostęp do folderów jest zablokowany przez przeglądarkę w trybie podglądu (iframe). " +
+                "Aby skorzystać z tej funkcji, otwórz aplikację w nowej karcie."
             );
             return;
         }
 
         try {
-            // 1. Try AI Studio brokered API
+            // 1. Try AI Studio brokered API (if available)
             if (aiStudio && aiStudio.showDirectoryPicker) {
                 const handle = await aiStudio.showDirectoryPicker({ mode: 'readwrite' });
                 onDirectoryConnect(handle);
@@ -66,12 +64,19 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
                 return; 
             }
     
-            // Handle Security/Iframe Restrictions
-            if (error.name === 'SecurityError' || error.message?.includes('Cross origin') || error.message?.includes('frame')) {
-                console.error('Directory Access Blocked:', error);
+            // Handle Security/Iframe Restrictions specifically
+            const isSecurityError = error.name === 'SecurityError';
+            const isCrossOriginError = error.message && (
+                error.message.includes('Cross origin') || 
+                error.message.includes('sub frames') ||
+                error.message.includes('SecurityError')
+            );
+
+            if (isSecurityError || isCrossOriginError) {
+                console.warn('Directory Access Blocked:', error);
                 setErrorMessage(
-                    "⚠️ Bezpośredni dostęp do folderów jest zablokowany przez przeglądarkę w tym trybie. " +
-                    "Otwórz aplikację w osobnej karcie lub użyj importu plików (Drag & Drop) powyżej."
+                    "⚠️ Błąd bezpieczeństwa: Przeglądarka zablokowała dostęp do plików w tej ramce. " +
+                    "Otwórz stronę w osobnej karcie (Open in New Tab), aby skorzystać z Trybu Folderu."
                 );
             } else {
                 console.error('Directory Connect Error:', error);
@@ -92,7 +97,7 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Tryb Folderu (Eksperymentalny)</h3>
             </div>
             <p className="max-w-md text-xs text-center text-slate-500 dark:text-slate-400 mb-4">
-                Edytuj pliki bezpośrednio na dysku bez tworzenia kopii ZIP. Wymaga przeglądarki opartej na Chromium (Chrome, Edge, Brave).
+                Edytuj pliki bezpośrednio na dysku bez tworzenia kopii ZIP. Wymaga przeglądarki opartej na Chromium (Chrome, Edge, Brave) i otwarcia w pełnej karcie.
             </p>
             
             {errorMessage && (
@@ -107,7 +112,7 @@ const DirectoryConnect: React.FC<DirectoryConnectProps> = ({ onDirectoryConnect 
             >
                 {isIframe && !aiStudio && (
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-indigo-200" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M8.257 3.099c.636-1.21 2.852-1.21 3.488 0l6.233 11.896c.64 1.223-.453 2.755-1.744 2.755H3.768c-1.291 0-2.384-1.532-1.744-2.755L8.257 3.099zM10 13a1 1 0 110-2 1 1 0 010 2zm-1-4a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clipRule="evenodd" />
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
                     </svg>
                 )}
                 Wybierz Folder
