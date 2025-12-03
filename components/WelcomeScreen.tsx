@@ -1,7 +1,5 @@
-
 import React from 'react';
 import DirectoryConnect from './DirectoryConnect'; // Nowy komponent
-import Roadmap from './Roadmap'; // Nowy komponent
 
 interface WelcomeScreenProps {
     children: React.ReactNode; // To będzie FileDropzone
@@ -55,7 +53,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ children, onDirectoryConn
                 </>
             )}
 
-            <Roadmap />
         </div>
     );
 };

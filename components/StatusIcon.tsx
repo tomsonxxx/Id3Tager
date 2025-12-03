@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ProcessingState } from '../types';
 

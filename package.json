@@ -1,5 +1,5 @@
 {
-  "name": "lumbago-music-ai",
+  "name": "inteligentny-tagger-id3",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,10 +11,7 @@
   "dependencies": {
     "@google/genai": "^1.24.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "prop-types": "15.8.1",
-    "recharts": "2.12.0",
-    "lodash": "4.17.21"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

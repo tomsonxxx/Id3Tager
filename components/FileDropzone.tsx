@@ -1,13 +1,13 @@
-
 import React, { useCallback, useState, useRef } from 'react';
 
-// Fix: Augment React's type definitions to include the non-standard 'webkitdirectory' 
+// Augment React's type definitions to include the non-standard 'webkitdirectory' 
 // property for the input element, which allows selecting directories.
 // Switched to global module augmentation to resolve module lookup issues.
 declare global {
   namespace React {
     interface InputHTMLAttributes<T> {
-      webkitdirectory?: string;
+      // FIX: Changed to camelCase to align with React's prop naming conventions for DOM attributes.
+      webkitDirectory?: string;
     }
   }
 }
@@ -96,7 +96,7 @@ const FileDropzone: React.FC<FileDropzoneProps> = ({ onFilesSelected, onUrlSubmi
         ref={folderInputRef}
         className="hidden"
         multiple
-        webkitdirectory=""
+        {...{ webkitdirectory: "" }}
         onChange={handleFileChange}
         disabled={isProcessing}
       />

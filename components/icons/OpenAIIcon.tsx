@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const OpenAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
