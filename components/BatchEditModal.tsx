@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { AudioFile, ID3Tags } from '../types';
 
@@ -8,8 +9,8 @@ interface BatchEditModalProps {
   files: AudioFile[];
 }
 
-type EditableTags = Pick<ID3Tags, 'artist' | 'albumArtist' | 'album' | 'year' | 'genre' | 'mood' | 'comments' | 'composer' | 'copyright' | 'encodedBy' | 'originalArtist' | 'discNumber' | 'bitrate' | 'sampleRate'>;
-const editableTagKeys: (keyof EditableTags)[] = ['artist', 'albumArtist', 'album', 'year', 'genre', 'composer', 'originalArtist', 'discNumber', 'mood', 'copyright', 'encodedBy', 'comments', 'bitrate', 'sampleRate'];
+type EditableTags = Pick<ID3Tags, 'artist' | 'albumArtist' | 'album' | 'year' | 'genre' | 'mood' | 'comments' | 'composer' | 'copyright' | 'encodedBy' | 'originalArtist' | 'discNumber'>;
+const editableTagKeys: (keyof EditableTags)[] = ['artist', 'albumArtist', 'album', 'year', 'genre', 'composer', 'originalArtist', 'discNumber', 'mood', 'copyright', 'encodedBy', 'comments'];
 
 const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave, files }) => {
   const [tags, setTags] = useState<Partial<EditableTags>>({});
@@ -21,18 +22,11 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
     if (!files || files.length === 0) return {};
     const firstFileTags: Partial<ID3Tags> = files[0].fetchedTags || {};
     const result: Partial<EditableTags> = {};
-
     for (const key of editableTagKeys) {
         const firstValue = firstFileTags[key];
         if (files.every(f => (f.fetchedTags?.[key] ?? '') === (firstValue ?? ''))) {
-            if (key === 'bitrate' || key === 'sampleRate') {
-                if (typeof firstValue === 'number' || typeof firstValue === 'undefined') {
-                  result[key] = firstValue;
-                }
-            } else {
-                if (typeof firstValue === 'string' || typeof firstValue === 'undefined') {
-                  result[key] = firstValue;
-                }
+            if (typeof firstValue === 'string' || typeof firstValue === 'undefined') {
+                result[key] = firstValue;
             }
         }
     }
@@ -42,16 +36,13 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
   useEffect(() => {
     if(isOpen) {
         setTags(commonTags);
-        // Reset checkboxes on open
-        setFieldsToUpdate(
-          editableTagKeys.reduce((acc, key) => ({ ...acc, [key]: false }), {} as Record<keyof EditableTags, boolean>)
-        );
+        setFieldsToUpdate(editableTagKeys.reduce((acc, key) => ({ ...acc, [key]: false }), {} as Record<keyof EditableTags, boolean>));
     }
   }, [isOpen, commonTags]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    setTags(prev => ({ ...prev, [name]: type === 'number' ? (value ? Number(value) : undefined) : value }));
+    const { name, value } = e.target;
+    setTags(prev => ({ ...prev, [name as keyof EditableTags]: value }));
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -62,89 +53,48 @@ const BatchEditModal: React.FC<BatchEditModalProps> = ({ isOpen, onClose, onSave
   const handleSave = () => {
     const tagsToApply: Partial<ID3Tags> = {};
     for (const key of editableTagKeys) {
-        if (fieldsToUpdate[key]) {
-            if (key === 'bitrate' || key === 'sampleRate') {
-                tagsToApply[key] = tags[key] || undefined;
-            } else {
-                tagsToApply[key] = tags[key] || '';
-            }
-        }
+        if (fieldsToUpdate[key]) tagsToApply[key] = tags[key] || '';
     }
     onSave(tagsToApply);
   };
   
   if (!isOpen) return null;
 
-  const tagLabels: Record<keyof EditableTags, string> = {
-      artist: 'Wykonawca',
-      albumArtist: 'Wykonawca albumu',
-      album: 'Album',
-      year: 'Rok',
-      genre: 'Gatunek',
-      mood: 'Nastrój',
-      comments: 'Komentarze',
-      bitrate: 'Bitrate (kbps)',
-      sampleRate: 'Sample Rate (Hz)',
-      composer: 'Kompozytor',
-      copyright: 'Prawa autorskie',
-      encodedBy: 'Zakodowane przez',
-      originalArtist: 'Oryginalny wykonawca',
-      discNumber: 'Numer dysku',
-  };
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-lg mx-4 transform transition-all duration-300 scale-95 opacity-0 animate-fade-in-scale max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Edycja masowa ({files.length} plików)</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="glass-panel w-full max-w-lg rounded-2xl p-6 animate-fade-in-scale max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Edycja masowa ({files.length})</h2>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+
         <div className="space-y-4">
           {editableTagKeys.map(key => (
-            <div key={key} className="flex items-start space-x-3">
-              <input 
-                type="checkbox"
-                id={`update-${key}`}
-                name={key}
-                checked={fieldsToUpdate[key]}
-                onChange={handleCheckboxChange}
-                className="h-5 w-5 rounded bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 mt-7"
-              />
+            <div key={key} className="flex items-start space-x-3 group">
+              <input type="checkbox" id={`update-${key}`} name={key} checked={fieldsToUpdate[key]} onChange={handleCheckboxChange} className="mt-3 h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-600" />
               <div className="flex-grow">
-                 <label htmlFor={key} className="block text-sm font-medium text-slate-500 dark:text-slate-400 capitalize">{tagLabels[key]}</label>
-                 {key === 'comments' ? (
-                      <textarea
-                        id={key}
-                        name={key}
-                        value={tags[key] || ''}
-                        onChange={handleChange}
-                        placeholder={commonTags[key] === undefined ? '(różne wartości)' : ''}
-                        className="mt-1 block w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
-                        disabled={!fieldsToUpdate[key]}
-                        rows={2}
-                    />
-                 ) : (
-                    <input
-                      type={key === 'bitrate' || key === 'sampleRate' ? 'number' : 'text'}
-                      id={key}
-                      name={key}
-                      value={tags[key] || ''}
-                      onChange={handleChange}
-                      placeholder={commonTags[key] === undefined ? '(różne wartości)' : ''}
-                      className="mt-1 block w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
-                      disabled={!fieldsToUpdate[key]}
-                    />
-                 )}
+                 <label htmlFor={key} className={`block text-xs font-semibold uppercase mb-1 transition-colors ${fieldsToUpdate[key] ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>{key}</label>
+                 <input
+                    type="text"
+                    id={key}
+                    name={key}
+                    value={tags[key] || ''}
+                    onChange={handleChange}
+                    placeholder={commonTags[key] === undefined ? '(różne wartości)' : ''}
+                    className={`block w-full rounded-lg py-2 px-3 text-sm transition-all outline-none border ${fieldsToUpdate[key] ? 'bg-white dark:bg-slate-800 border-indigo-500 ring-1 ring-indigo-500 text-slate-900 dark:text-white' : 'bg-slate-100 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 text-slate-500 cursor-not-allowed opacity-60'}`}
+                    disabled={!fieldsToUpdate[key]}
+                 />
               </div>
             </div>
           ))}
         </div>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-4 text-center">
-          Aby wyczyścić tag, zaznacz pole i pozostaw je puste.
-        </p>
-        <div className="flex justify-end space-x-4 mt-6">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600">Anuluj</button>
-          <button onClick={handleSave} className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-500">Zastosuj zmiany</button>
+        <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Anuluj</button>
+          <button onClick={handleSave} className="px-6 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-500 shadow-md transition-all active:scale-95">Zastosuj</button>
         </div>
       </div>
-      <style>{`.animate-fade-in-scale { animation: fade-in-scale 0.2s ease-out forwards; } @keyframes fade-in-scale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
     </div>
   );
 };

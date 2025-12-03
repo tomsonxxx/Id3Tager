@@ -1,63 +1,56 @@
 
-
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 // Components
-import Footer from './components/Footer';
-import ThemeToggle from './components/ThemeToggle';
+import FileDropzone from './components/FileDropzone';
 import SettingsModal from './components/SettingsModal';
-import EditTagsModal from './components/EditTagsModal';
 import RenameModal from './components/RenameModal';
-import ConfirmationModal from './components/ConfirmationModal';
 import BatchEditModal from './components/BatchEditModal';
 import PostDownloadModal from './components/PostDownloadModal';
-import AlbumCoverModal from './components/AlbumCoverModal';
 import PreviewChangesModal from './components/PreviewChangesModal';
-import MainToolbar from './components/MainToolbar';
-import TabbedInterface, { Tab } from './components/TabbedInterface';
-import LibraryTab from './components/LibraryTab';
-import ScanTab from './components/ScanTab';
-import PlaceholderTab from './components/PlaceholderTab';
+import DuplicateResolverModal from './components/DuplicateResolverModal';
+import XmlConverterModal from './components/XmlConverterModal'; 
+import ToastContainer, { Toast, ToastType } from './components/ToastContainer';
 
-// Types
-import { AudioFile, ProcessingState, ID3Tags } from './types';
-import { AIProvider, ApiKeys, fetchTagsForFile, fetchTagsForBatch } from './services/aiService';
+// New Components (Library View)
+import Sidebar from './components/Sidebar';
+import TrackTable from './components/TrackTable';
+import TrackGrid from './components/TrackGrid'; 
+import RightPanel from './components/RightPanel';
+import PlayerDock from './components/PlayerDock';
+import LibraryToolbar from './components/LibraryToolbar';
+import FilterBar from './components/FilterBar'; 
+import WelcomeScreen from './components/WelcomeScreen';
+import ContextMenu, { ContextMenuAction } from './components/ContextMenu'; 
+
+// Hooks
+import { useLibrary } from './hooks/useLibrary';
+import { useSettings } from './hooks/useSettings';
+import { useAIProcessing } from './hooks/useAIProcessing';
 
 // Utils
-import { readID3Tags, applyTags, saveFileDirectly, isTagWritingSupported } from './utils/audioUtils';
-import { generatePath } from './utils/filenameUtils';
-import { sortFiles, SortKey } from './utils/sortingUtils';
+import { applyTags, saveFileDirectly, isTagWritingSupported } from './utils/audioUtils';
+import { ProcessingState, AudioFile } from './types';
+import { findDuplicateSets } from './utils/duplicateUtils';
 import { exportFilesToCsv } from './utils/csvUtils';
 
-declare const uuid: { v4: () => string; };
+// Declare libs
 declare const JSZip: any;
 declare const saveAs: any;
+declare const uuid: { v4: () => string; };
 
-const MAX_CONCURRENT_REQUESTS = 3;
 const SUPPORTED_FORMATS = ['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/flac', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/x-ms-wma'];
-
-interface RenamePreview {
-    originalName: string;
-    newName: string;
-    isTooLong: boolean;
-}
 
 type ModalState = 
   | { type: 'none' }
-  | { type: 'edit'; fileId: string }
-  | { type: 'rename' }
-  | { type: 'delete'; fileId: string | 'selected' | 'all' }
   | { type: 'settings' }
+  | { type: 'rename' }
   | { type: 'batch-edit' }
   | { type: 'post-download'; count: number }
-  | { type: 'zoom-cover', imageUrl: string }
-  | { type: 'preview-changes'; title: string; confirmationText: string; previews: RenamePreview[]; onConfirm: () => void; };
-
-interface SerializableAudioFile {
-  id: string; state: ProcessingState; originalTags: ID3Tags; fetchedTags?: ID3Tags;
-  newName?: string; isSelected?: boolean; errorMessage?: string; dateAdded: number;
-  webkitRelativePath?: string; fileName: string; fileType: string;
-}
+  | { type: 'preview-changes'; title: string; confirmationText: string; previews: any[]; onConfirm: () => void; }
+  | { type: 'import' }
+  | { type: 'duplicates'; sets: Map<string, AudioFile[]> }
+  | { type: 'xml-converter' }; 
 
 async function* getFilesRecursively(entry: any): AsyncGenerator<{ file: File, handle: any, path: string }> {
     if (entry.kind === 'file') {
@@ -75,379 +68,509 @@ async function* getFilesRecursively(entry: any): AsyncGenerator<{ file: File, ha
 }
 
 const App: React.FC = () => {
-    const isRestoredRef = useRef(false);
-    const [isRestored, setIsRestored] = useState(false);
-    
-    const [files, setFiles] = useState<AudioFile[]>(() => {
-        const saved = localStorage.getItem('audioFiles');
-        if (saved) {
-            try {
-                const parsed: SerializableAudioFile[] = JSON.parse(saved);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    isRestoredRef.current = true;
-                    return parsed.map(f => ({ ...f, file: new File([], f.fileName, { type: f.fileType }), handle: null }));
-                }
-            } catch (e) { localStorage.removeItem('audioFiles'); }
-        }
-        return [];
-    });
+    // --- State Management via Hooks ---
+    const { 
+        theme, setTheme, apiKeys, setApiKeys, aiProvider, setAiProvider, renamePattern, setRenamePattern 
+    } = useSettings();
 
-    const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
+    const {
+        files, setFiles, sortedFiles, paginatedFiles,
+        selectedFileIds, activeFileId, activeFile, selectedFiles,
+        isRestored, sortConfig, setSortConfig,
+        addFiles, updateFile, removeFiles, toggleSelection, selectAll, clearSelection, activateFile,
+        setIsRestored,
+        filters, setFilters, availableGenres,
+        playlists, createPlaylist, deletePlaylist, addToPlaylist,
+        currentPage, totalPages, setCurrentPage, itemsPerPage, setItemsPerPage
+    } = useLibrary(renamePattern);
+
+    const { 
+        analyzeBatch, isBatchAnalyzing 
+    } = useAIProcessing(files, updateFile, apiKeys, aiProvider);
+
+    // --- Local App State ---
     const [isSaving, setIsSaving] = useState(false);
-    const [savingFileId, setSavingFileId] = useState<string | null>(null);
     const [directoryHandle, setDirectoryHandle] = useState<any | null>(null);
-    const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'dark');
-    const [apiKeys, setApiKeys] = useState<ApiKeys>(() => JSON.parse(localStorage.getItem('apiKeys') || '{"grok":"","openai":""}'));
-    const [aiProvider, setAiProvider] = useState<AIProvider>(() => (localStorage.getItem('aiProvider') as AIProvider) || 'gemini');
-    const [sortKey, setSortKey] = useState<SortKey>(() => (localStorage.getItem('sortKey') as SortKey) || 'dateAdded');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => (localStorage.getItem('sortDirection') as 'asc' | 'desc') || 'asc');
-    const [renamePattern, setRenamePattern] = useState<string>(() => localStorage.getItem('renamePattern') || '[artist] - [title]');
     const [modalState, setModalState] = useState<ModalState>({ type: 'none' });
-    const [activeTab, setActiveTab] = useState('library');
-
-    const processingQueueRef = useRef<string[]>([]);
-    const activeRequestsRef = useRef(0);
-
-    useEffect(() => {
-        if (isRestoredRef.current) {
-            setIsRestored(true);
-            isRestoredRef.current = false;
-            setActiveTab('library');
-        } else if (files.length === 0) {
-            setActiveTab('scan');
-        }
-    }, []); // Only run once on mount
+    const [toasts, setToasts] = useState<Toast[]>([]);
     
-    useEffect(() => { localStorage.setItem('theme', theme); document.documentElement.className = theme; }, [theme]);
-    useEffect(() => { localStorage.setItem('apiKeys', JSON.stringify(apiKeys)); }, [apiKeys]);
-    useEffect(() => { localStorage.setItem('aiProvider', aiProvider); }, [aiProvider]);
-    useEffect(() => { localStorage.setItem('sortKey', sortKey); }, [sortKey]);
-    useEffect(() => { localStorage.setItem('sortDirection', sortDirection); }, [sortDirection]);
-    useEffect(() => { localStorage.setItem('renamePattern', renamePattern); }, [renamePattern]);
+    // View State
+    const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+    const [showFilters, setShowFilters] = useState(false);
 
-    useEffect(() => {
-        if (files.length === 0 && !isRestored) {
-            localStorage.removeItem('audioFiles');
-            return;
-        }
-        const serializableFiles: SerializableAudioFile[] = files.map(f => ({
-            id: f.id, state: f.state, originalTags: f.originalTags, fetchedTags: f.fetchedTags,
-            newName: f.newName, isSelected: f.isSelected, errorMessage: f.errorMessage, dateAdded: f.dateAdded,
-            webkitRelativePath: f.webkitRelativePath, fileName: f.file.name, fileType: f.file.type,
-        }));
-        localStorage.setItem('audioFiles', JSON.stringify(serializableFiles));
-    }, [files, isRestored]);
+    // Context Menu State
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId: string } | null>(null);
 
-    useEffect(() => {
-        setFiles(currentFiles => currentFiles.map(file => ({ ...file, newName: generatePath(renamePattern, file.fetchedTags || file.originalTags, file.file.name) })));
-    }, [renamePattern, files.map(f => f.fetchedTags).join(',')]);
-    
-    const updateFileState = useCallback((id: string, updates: Partial<AudioFile>) => {
-        setFiles(prevFiles => prevFiles.map(f => f.id === id ? { ...f, ...updates } : f));
+    // --- Toast Helpers ---
+    const addToast = useCallback((message: string, type: ToastType = 'info') => {
+        const id = typeof uuid !== 'undefined' ? uuid.v4() : Date.now().toString();
+        setToasts(prev => [...prev, { id, message, type }]);
     }, []);
 
-    const processQueue = useCallback(async () => {
-        if (activeRequestsRef.current >= MAX_CONCURRENT_REQUESTS || processingQueueRef.current.length === 0) return;
-        const fileId = processingQueueRef.current.shift();
-        if (!fileId) return;
-        const file = files.find(f => f.id === fileId);
-        if (!file || file.state !== ProcessingState.PENDING) { processQueue(); return; }
-        activeRequestsRef.current++;
-        updateFileState(fileId, { state: ProcessingState.PROCESSING });
-        try {
-            const fetchedTags = await fetchTagsForFile(file.file.name, file.originalTags, aiProvider, apiKeys);
-            updateFileState(fileId, { state: ProcessingState.SUCCESS, fetchedTags });
-        } catch (error) {
-            updateFileState(fileId, { state: ProcessingState.ERROR, errorMessage: error instanceof Error ? error.message : "Błąd" });
-        } finally {
-            activeRequestsRef.current--;
-            processQueue();
-        }
-    }, [files, aiProvider, apiKeys, updateFileState]);
+    const removeToast = useCallback((id: string) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    }, []);
 
-    const handleClearAndReset = () => { setFiles([]); setIsRestored(false); setDirectoryHandle(null); setActiveTab('scan'); };
+    // --- Keyboard Shortcuts ---
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+                return;
+            }
 
-    const addFilesToQueue = useCallback(async (filesToAdd: { file: File, handle?: any, path?: string }[]) => {
-        if (typeof uuid === 'undefined') { alert("Błąd: Biblioteka 'uuid' nie załadowana."); return; }
-        const validAudioFiles = filesToAdd.filter(item => SUPPORTED_FORMATS.includes(item.file.type));
-        if (validAudioFiles.length === 0) throw new Error(`Brak obsługiwanych formatów audio.`);
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedFileIds.length > 0 && modalState.type === 'none') {
+                    if (confirm(`Usunąć ${selectedFileIds.length} plików z biblioteki?`)) {
+                        removeFiles(selectedFileIds);
+                        addToast(`Usunięto ${selectedFileIds.length} plików`, 'success');
+                    }
+                }
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                e.preventDefault();
+                selectAll();
+            }
+
+            if (e.key === 'Escape') {
+                if (modalState.type !== 'none') {
+                    setModalState({ type: 'none' });
+                } else if (contextMenu) {
+                    setContextMenu(null);
+                } else if (selectedFileIds.length > 0) {
+                    clearSelection();
+                } else if (showFilters) {
+                    setShowFilters(false);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedFileIds, modalState, contextMenu, removeFiles, selectAll, clearSelection, showFilters, addToast]);
+
+
+    // --- Handlers ---
+
+    const handleFilesSelected = async (fileList: FileList) => {
+        const filesToAdd = Array.from(fileList).map(f => ({ file: f }));
+        await addFiles(filesToAdd);
+        addToast(`Dodano ${filesToAdd.length} plików`, 'success');
+    };
+
+    const handleDirectoryConnect = async (handle: any) => {
         setIsRestored(false);
-        const newAudioFiles: AudioFile[] = await Promise.all(validAudioFiles.map(async item => ({
-            id: uuid.v4(), file: item.file, handle: item.handle, webkitRelativePath: item.path || item.file.webkitRelativePath,
-            state: ProcessingState.PENDING, originalTags: await readID3Tags(item.file), dateAdded: Date.now(),
-        })));
-        setFiles(prev => [...prev, ...newAudioFiles]);
-        setActiveTab('library');
-        if (!directoryHandle) {
-            processingQueueRef.current.push(...newAudioFiles.map(f => f.id));
-            for(let i=0; i<MAX_CONCURRENT_REQUESTS; i++) processQueue();
+        setDirectoryHandle(handle);
+        setFiles([]);
+        try {
+            const filesToProcess = [];
+            for await (const fileData of getFilesRecursively(handle)) {
+                filesToProcess.push(fileData);
+            }
+            await addFiles(filesToProcess);
+            addToast(`Wczytano folder: ${handle.name}`, 'success');
+        } catch (error) {
+            addToast(`Błąd odczytu folderu: ${error}`, 'error');
         }
-    }, [processQueue, directoryHandle]);
-
-    const handleFilesSelected = useCallback(async (selectedFiles: FileList) => {
-        try { await addFilesToQueue(Array.from(selectedFiles).map(f => ({ file: f }))); } 
-        catch (e) { alert(`Błąd: ${e instanceof Error ? e.message : e}`); }
-    }, [addFilesToQueue]);
-
-    const handleDirectoryConnect = useCallback(async (handle: any) => {
-        setIsRestored(false); setDirectoryHandle(handle); setFiles([]);
-        try {
-            const filesToProcess: { file: File, handle: any, path: string }[] = [];
-            for await (const fileData of getFilesRecursively(handle)) filesToProcess.push(fileData);
-            await addFilesToQueue(filesToProcess);
-        } catch (e) { alert(`Błąd: ${e instanceof Error ? e.message : e}`); setDirectoryHandle(null); }
-    }, [addFilesToQueue]);
-
+    };
+    
     const handleUrlSubmitted = async (url: string) => {
-        if (!url) return;
         try {
-            const response = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(url));
-            if (!response.ok) throw new Error(`Błąd pobierania: ${response.statusText}`);
+            const proxyUrl = 'https://api.allorigins.win/raw?url=';
+            const response = await fetch(proxyUrl + encodeURIComponent(url));
+            if (!response.ok) throw new Error("Network error");
             const blob = await response.blob();
-            if (!SUPPORTED_FORMATS.some(f => blob.type.startsWith(f.split('/')[0]))) throw new Error(`Nieobsługiwany typ: ${blob.type}`);
-            let filename = 'remote_file.mp3'; try { filename = decodeURIComponent(new URL(url).pathname.split('/').pop() || filename); } catch {}
-            await addFilesToQueue([{ file: new File([blob], filename, { type: blob.type }) }]);
-        } catch (e) { alert(`Błąd URL: ${e instanceof Error ? e.message : e}`); throw e; }
-    };
-    
-    const handleProcessFile = useCallback((file: AudioFile) => {
-        if (!processingQueueRef.current.includes(file.id)) processingQueueRef.current.push(file.id);
-        processQueue();
-    }, [processQueue]);
-    
-    const sortedFiles = useMemo(() => sortFiles([...files], sortKey, sortDirection), [files, sortKey, sortDirection]);
-    const selectedFiles = useMemo(() => files.filter(f => f.isSelected), [files]);
-    const allFilesSelected = useMemo(() => files.length > 0 && files.every(f => f.isSelected), [files]);
-    const isProcessing = useMemo(() => files.some(f => f.state === ProcessingState.PROCESSING), [files]);
-    const modalFile = useMemo(() => (modalState.type === 'edit') ? files.find(f => f.id === modalState.fileId) : undefined, [modalState, files]);
-
-    const handleSelectionChange = (fileId: string, isSelected: boolean) => updateFileState(fileId, { isSelected });
-    const handleToggleSelectAll = () => setFiles(prev => prev.map(f => ({ ...f, isSelected: !allFilesSelected })));
-    const handleSaveSettings = (keys: ApiKeys, provider: AIProvider) => { setApiKeys(keys); setAiProvider(provider); setModalState({ type: 'none' }); };
-    
-    const handleDelete = (fileId: string) => {
-        if (fileId === 'all') handleClearAndReset();
-        else if (fileId === 'selected') setFiles(f => f.filter(file => !file.isSelected));
-        else setFiles(f => f.filter(file => file.id !== fileId));
-        setModalState({ type: 'none' });
+            const file = new File([blob], 'remote.mp3', { type: blob.type });
+            await addFiles([{ file }]);
+            addToast('Pobrano plik z URL', 'success');
+        } catch(e) { 
+            addToast("Błąd pobierania URL", 'error'); 
+        }
     };
 
-    const openDeleteModal = (id: string | 'selected' | 'all') => {
-        if (id === 'selected' && selectedFiles.length === 0) { alert("Nie wybrano plików."); return; }
-        setModalState({ type: 'delete', fileId: id });
-    };
+    const handleDownloadOrSave = async () => {
+        const targetFiles = selectedFiles.length > 0 ? selectedFiles : files;
+        if (targetFiles.length === 0) return;
 
-    const handleSaveTags = (fileId: string, tags: ID3Tags) => { updateFileState(fileId, { fetchedTags: tags }); setModalState({ type: 'none' }); };
+        const previews = targetFiles.map(file => {
+             const newName = file.newName || file.file.name;
+             const oldName = file.webkitRelativePath || file.file.name;
+             return { originalName: oldName, newName, isTooLong: newName.length > 255 };
+        }).filter(p => p.originalName !== p.newName);
 
-    const handleApplyTags = async (fileId: string, tags: ID3Tags) => {
-        if (!directoryHandle) return;
-        const file = files.find(f => f.id === fileId);
-        if (!file || !file.handle) return;
-        setSavingFileId(fileId);
-        try {
-            const result = await saveFileDirectly(directoryHandle, { ...file, fetchedTags: tags });
-            if (result.success && result.updatedFile) {
-                updateFileState(fileId, { ...result.updatedFile, state: ProcessingState.SUCCESS });
-                setModalState({ type: 'none' });
-            } else updateFileState(fileId, { state: ProcessingState.ERROR, errorMessage: result.errorMessage, fetchedTags: tags });
-        } catch (e) { updateFileState(fileId, { state: ProcessingState.ERROR, errorMessage: e instanceof Error ? e.message : "Błąd", fetchedTags: tags });
-        } finally { setSavingFileId(null); }
-    };
-    
-    const handleManualSearch = async (query: string, file: AudioFile) => {
-        updateFileState(file.id, { state: ProcessingState.PROCESSING });
-        try {
-            const fetchedTags = await fetchTagsForFile(query, file.originalTags, aiProvider, apiKeys);
-            updateFileState(file.id, { state: ProcessingState.SUCCESS, fetchedTags });
-        } catch (e) { updateFileState(file.id, { state: ProcessingState.ERROR, errorMessage: e instanceof Error ? e.message : "Błąd" }); throw e; }
-    };
+        const execute = () => executeDownloadOrSave(targetFiles);
 
-    const handleSaveRenamePattern = (newPattern: string) => {
-        const filesToPreview = selectedFiles.length > 0 ? selectedFiles : files.slice(0, 5);
-        if (filesToPreview.length === 0) { setRenamePattern(newPattern); setModalState({ type: 'none' }); return; }
-        const previews = filesToPreview.map(f => ({ originalName: f.webkitRelativePath || f.file.name, newName: generatePath(newPattern, f.fetchedTags || f.originalTags, f.file.name), isTooLong: (f.newName || "").length > 255 }));
-        setModalState({ type: 'preview-changes', title: 'Potwierdź zmianę szablonu', confirmationText: 'Nowy szablon zostanie zastosowany. Czy kontynuować?', previews, onConfirm: () => { setRenamePattern(newPattern); setModalState({ type: 'none' }); } });
-    };
-
-    const handleBatchEditSave = (tagsToApply: Partial<ID3Tags>) => {
-        setFiles(f => f.map(file => {
-            if (file.isSelected) {
-                const newTags = { ...file.fetchedTags, ...tagsToApply };
-                Object.keys(tagsToApply).forEach(k => { if (tagsToApply[k as keyof ID3Tags] === '') delete newTags[k as keyof ID3Tags]; });
-                return { ...file, fetchedTags: newTags };
-            } return file;
-        }));
-        setModalState({ type: 'none' });
-    };
-
-    const executeDownloadOrSave = async () => {
-        setIsSaving(true);
-        if (directoryHandle) {
-            const filesToSave = selectedFiles.filter(f => f.handle);
-            const fileIdsToSave = filesToSave.map(f => f.id);
-            setFiles(files => files.map(f => fileIdsToSave.includes(f.id) ? { ...f, state: ProcessingState.DOWNLOADING } : f));
-            const results = await Promise.all(filesToSave.map(file => saveFileDirectly(directoryHandle, file)));
-            let successCount = 0;
-            const updates = new Map<string, Partial<AudioFile>>();
-            results.forEach((result, index) => {
-                const originalFile = filesToSave[index];
-                if (result.success && result.updatedFile) {
-                    successCount++;
-                    updates.set(originalFile.id, { ...result.updatedFile, state: ProcessingState.SUCCESS, isSelected: false });
-                } else {
-                    updates.set(originalFile.id, { state: ProcessingState.ERROR, errorMessage: result.errorMessage });
+        if (previews.length === 0) {
+            await execute();
+        } else {
+            setModalState({
+                type: 'preview-changes',
+                title: directoryHandle ? 'Potwierdź zapis' : 'Potwierdź pobieranie',
+                confirmationText: 'Pliki zostaną zmienione zgodnie z szablonem.',
+                previews,
+                onConfirm: () => {
+                    setModalState({ type: 'none' });
+                    setTimeout(execute, 50);
                 }
             });
-            setFiles(currentFiles => currentFiles.map(file => updates.has(file.id) ? { ...file, ...updates.get(file.id) } : file));
-            alert(`Zapisano pomyślnie ${successCount} z ${filesToSave.length} plików.`);
+        }
+    };
+
+    const executeDownloadOrSave = async (targetFiles: AudioFile[]) => {
+        if (directoryHandle) {
+             setIsSaving(true);
+             const ids = targetFiles.map(f => f.id);
+             setFiles(files => files.map(f => ids.includes(f.id) ? { ...f, state: ProcessingState.DOWNLOADING } : f));
+             
+             let successCount = 0;
+             let errorCount = 0;
+
+             for (const file of targetFiles) {
+                 const res = await saveFileDirectly(directoryHandle, file);
+                 if (res.success && res.updatedFile) {
+                     updateFile(file.id, { ...res.updatedFile, state: ProcessingState.SUCCESS });
+                     successCount++;
+                 } else {
+                     updateFile(file.id, { state: ProcessingState.ERROR, errorMessage: res.errorMessage });
+                     errorCount++;
+                 }
+             }
+             setIsSaving(false);
+             if (errorCount > 0) {
+                 addToast(`Zapisano ${successCount} plików. Błędy: ${errorCount}`, 'info');
+             } else {
+                 addToast("Zapis zakończony pomyślnie.", 'success');
+             }
         } else {
-            const filesToDownload = selectedFiles.filter(f => f.state === ProcessingState.SUCCESS || f.state === ProcessingState.PENDING);
-            const downloadableFileIds = filesToDownload.map(f => f.id);
-            setFiles(files => files.map(f => downloadableFileIds.includes(f.id) ? { ...f, state: ProcessingState.DOWNLOADING } : f));
-            const zip = new JSZip();
-            const errorUpdates = new Map<string, Partial<AudioFile>>();
-            await Promise.all(filesToDownload.map(async (audioFile) => {
-                const finalName = generatePath(renamePattern, audioFile.fetchedTags || audioFile.originalTags, audioFile.file.name) || audioFile.file.name;
-                try {
-                    if (isTagWritingSupported(audioFile.file) && audioFile.fetchedTags) {
-                         const blob = await applyTags(audioFile.file, audioFile.fetchedTags);
-                         zip.file(finalName, blob);
-                    } else {
-                        zip.file(finalName, audioFile.file);
-                    }
-                } catch (error) {
-                    errorUpdates.set(audioFile.id, { state: ProcessingState.ERROR, errorMessage: error instanceof Error ? error.message : "Błąd zapisu tagów." });
-                }
-            }));
-            if (Object.keys(zip.files).length > 0) {
-                const zipBlob = await zip.generateAsync({ type: 'blob' });
-                saveAs(zipBlob, 'tagged-music.zip');
-                setModalState({ type: 'post-download', count: Object.keys(zip.files).length });
-            }
-            setFiles(files => files.map(f => {
-                if (errorUpdates.has(f.id)) return { ...f, ...errorUpdates.get(f.id) };
-                if (downloadableFileIds.includes(f.id) && f.state === ProcessingState.DOWNLOADING) return { ...f, state: ProcessingState.SUCCESS };
-                return f;
-            }));
+             handleDownloadZip(targetFiles);
+        }
+    };
+
+    const handleDownloadZip = async (targetFiles: AudioFile[]) => {
+        setIsSaving(true);
+        try {
+             if (typeof JSZip === 'undefined' || typeof saveAs === 'undefined') throw new Error("Biblioteki ZIP nie zostały załadowane");
+             const zip = new JSZip();
+             
+             for (const file of targetFiles) {
+                  let blob: Blob = file.file;
+                  if (isTagWritingSupported(file.file)) {
+                      try {
+                          blob = await applyTags(file.file, file.fetchedTags || file.originalTags);
+                      } catch (tagError) {
+                          console.warn(`Skipping tagging for ZIP for ${file.file.name}:`, tagError);
+                          blob = file.file;
+                      }
+                  }
+                  zip.file(file.newName || file.file.name, blob); 
+             }
+             
+             const content = await zip.generateAsync({type:"blob"});
+             saveAs(content, "music.zip");
+             setModalState({ type: 'post-download', count: targetFiles.length });
+        } catch(e) { 
+            console.error(e);
+            addToast("Błąd tworzenia archiwum ZIP", 'error'); 
         }
         setIsSaving(false);
     };
-    
-    const handleDownloadOrSave = async () => {
-        const filesToProcess = selectedFiles.length > 0 ? selectedFiles : [];
-        if (filesToProcess.length === 0) {
-            alert("Nie wybrano żadnych plików do zapisania lub pobrania.");
-            return;
-        }
-        const previews = filesToProcess.map(file => ({
-            originalName: file.webkitRelativePath || file.file.name,
-            newName: file.newName || file.file.name,
-            isTooLong: (file.newName || file.file.name).length > 255
-        })).filter(p => p.originalName !== p.newName);
 
-        if (previews.length === 0) {
-            await executeDownloadOrSave();
+    const handleFindDuplicates = () => {
+        if (files.length < 2) {
+            addToast("Dodaj więcej plików, aby wyszukać duplikaty.", 'info');
             return;
         }
-        setModalState({
-            type: 'preview-changes',
-            title: `Potwierdź ${directoryHandle ? 'zapis i zmianę nazw' : 'pobieranie ze zmianą nazw'}`,
-            confirmationText: `Nazwy ${previews.length} z ${selectedFiles.length} zaznaczonych plików zostaną zmienione zgodnie z szablonem przed zapisaniem. Czy chcesz kontynuować?`,
-            previews: previews,
-            onConfirm: () => { setModalState({ type: 'none' }); setTimeout(() => executeDownloadOrSave(), 50); }
-        });
+        const sets = findDuplicateSets(files);
+        if (sets.size === 0) {
+            addToast("Nie znaleziono duplikatów w bibliotece.", 'success');
+            return;
+        }
+        setModalState({ type: 'duplicates', sets });
     };
 
     const handleExportCsv = () => {
-        if (files.length === 0) return alert("Brak plików do wyeksportowania.");
+        if (files.length === 0) return;
         try {
-            const csvData = exportFilesToCsv(files);
-            const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-            saveAs(blob, `id3-tagger-export-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`);
-        } catch (error) {
-            alert(`Wystąpił błąd podczas eksportowania pliku CSV: ${error instanceof Error ? error.message : String(error)}`);
+            const csvContent = exportFilesToCsv(files);
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+            saveAs(blob, "lumbago_library_export.csv");
+            addToast("Wyeksportowano plik CSV", 'success');
+        } catch (e) {
+            console.error("Export CSV failed", e);
+            addToast("Wystąpił błąd podczas eksportu CSV.", 'error');
         }
     };
-    
-    const handlePostDownloadRemove = () => { setFiles(f => f.filter(file => !file.isSelected)); setModalState({ type: 'none' }); };
 
-    const handleBatchAnalyze = async (filesToProcess: AudioFile[]) => {
-        if (filesToProcess.length === 0 || isBatchAnalyzing) return;
-        const ids = filesToProcess.map(f => f.id);
-        setIsBatchAnalyzing(true);
-        setFiles(prev => prev.map(f => ids.includes(f.id) ? { ...f, state: ProcessingState.PROCESSING } : f));
-        try {
-            const results = await fetchTagsForBatch(filesToProcess, aiProvider, apiKeys);
-            const resultsMap = new Map(results.map(r => [r.originalFilename, r]));
-            setFiles(prev => prev.map(f => {
-                if (ids.includes(f.id)) {
-                    const result = resultsMap.get(f.file.name);
-                    if (result) {
-                        const { originalFilename, ...tags } = result;
-                        return { ...f, state: ProcessingState.SUCCESS, fetchedTags: { ...f.originalTags, ...tags } };
-                    } return { ...f, state: ProcessingState.ERROR, errorMessage: "Brak odpowiedzi AI." };
-                } return f;
-            }));
-        } catch (e) {
-            setFiles(prev => prev.map(f => ids.includes(f.id) ? { ...f, state: ProcessingState.ERROR, errorMessage: e instanceof Error ? e.message : "Błąd" } : f));
-        } finally { setIsBatchAnalyzing(false); }
-    };
-    
-    const handleBatchAnalyzeAll = () => {
-        const toAnalyze = files.filter(f => f.state !== ProcessingState.SUCCESS);
-        if (toAnalyze.length === 0) return alert("Wszystkie pliki przetworzone.");
-        handleBatchAnalyze(toAnalyze);
+    const handleCreatePlaylist = () => {
+        const name = prompt("Podaj nazwę nowej playlisty:");
+        if (name && name.trim()) {
+            createPlaylist(name.trim());
+            addToast(`Utworzono playlistę "${name}"`, 'success');
+        }
     };
 
-    const filesForRenamePreview = selectedFiles.length > 0 ? selectedFiles : files.slice(0, 5);
-    
-    const tabs: Tab[] = [
-        { id: 'library', label: 'Biblioteka', component: <LibraryTab 
-            files={files} sortedFiles={sortedFiles} selectedFiles={selectedFiles} allFilesSelected={allFilesSelected}
-            isBatchAnalyzing={isBatchAnalyzing} isSaving={isSaving} directoryHandle={directoryHandle} isRestored={isRestored}
-            onToggleSelectAll={handleToggleSelectAll} onBatchAnalyze={handleBatchAnalyze} onBatchAnalyzeAll={handleBatchAnalyzeAll}
-            onDownloadOrSave={handleDownloadOrSave} onBatchEdit={() => setModalState({ type: 'batch-edit' })}
-            onSingleItemEdit={(id) => setModalState({ type: 'edit', fileId: id })} onRename={() => setModalState({ type: 'rename' })}
-            onExportCsv={handleExportCsv} onDeleteItem={openDeleteModal} onClearAll={() => openDeleteModal('all')}
-            onProcessFile={handleProcessFile} onSelectionChange={handleSelectionChange} onTabChange={setActiveTab}
-        /> },
-        { id: 'scan', label: 'Import / Skan', component: <ScanTab 
-            onFilesSelected={handleFilesSelected} onUrlSubmitted={handleUrlSubmitted}
-            onDirectoryConnect={handleDirectoryConnect} isProcessing={isProcessing}
-        /> },
-        { id: 'player', label: 'Odtwarzacz', component: <PlaceholderTab title="Odtwarzacz" /> },
-        { id: 'tagger', label: 'Smart Tagger AI', component: <PlaceholderTab title="Smart Tagger AI" /> },
-        { id: 'duplicates', label: 'Wyszukiwarka Duplikatów', component: <PlaceholderTab title="Wyszukiwarka Duplikatów" /> },
-        { id: 'converter', label: 'Konwerter XML', component: <PlaceholderTab title="Konwerter XML" /> },
-    ];
+    const handleContextMenu = (e: React.MouseEvent, fileId: string) => {
+        e.preventDefault();
+        setContextMenu({ x: e.clientX, y: e.clientY, targetId: fileId });
+        
+        if (!selectedFileIds.includes(fileId)) {
+            toggleSelection(fileId, false);
+        }
+    };
+
+    // New handlers for Sidebar
+    const handleShowRecentlyAdded = () => {
+        setSortConfig([{ key: 'dateAdded', direction: 'desc' }]);
+        setFilters(prev => ({ ...prev, playlistId: null }));
+        addToast('Pokaż ostatnio dodane', 'info');
+    };
+
+    const getContextMenuActions = (): ContextMenuAction[] => {
+        if (!contextMenu) return [];
+        const isMultiSelect = selectedFileIds.length > 1;
+        const targetFile = files.find(f => f.id === contextMenu.targetId);
+        const filesToAddIds = selectedFileIds.length > 0 ? selectedFileIds : [contextMenu.targetId];
+        
+        const actions: ContextMenuAction[] = [
+            {
+                label: isMultiSelect ? `Przetwarzaj zaznaczone (${selectedFileIds.length})` : 'Przetwarzaj (AI)',
+                icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-500" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg>,
+                onClick: () => analyzeBatch(selectedFileIds.length > 0 ? selectedFiles : (targetFile ? [targetFile] : [])),
+                disabled: isBatchAnalyzing
+            },
+            {
+                label: 'Edytuj Tagi',
+                icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>,
+                onClick: () => {
+                    if (selectedFileIds.length > 1) {
+                        setModalState({ type: 'batch-edit' });
+                    } else if (targetFile) {
+                        activateFile(targetFile);
+                    }
+                }
+            },
+            {
+                label: 'Dodaj do Playlisty',
+                icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>,
+                onClick: () => {}, 
+                subMenu: playlists.length > 0 
+                    ? playlists.map(pl => ({
+                        label: pl.name,
+                        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" /></svg>,
+                        onClick: () => {
+                            addToPlaylist(pl.id, filesToAddIds);
+                            addToast(`Dodano do playlisty "${pl.name}"`, 'success');
+                        }
+                    }))
+                    : [{ label: 'Brak playlist (Utwórz nową)', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-300" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" /></svg>, onClick: handleCreatePlaylist }]
+            },
+            {
+                label: 'Znajdź Duplikaty',
+                icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-500" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" /></svg>,
+                onClick: handleFindDuplicates,
+                divider: true
+            },
+            {
+                label: 'Pobierz / Zapisz',
+                icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-600" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>,
+                onClick: handleDownloadOrSave,
+                disabled: isSaving
+            },
+            {
+                label: 'Usuń',
+                icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>,
+                onClick: () => {
+                    if (confirm('Usunąć?')) {
+                        removeFiles(selectedFileIds.length > 0 ? selectedFileIds : [contextMenu.targetId]);
+                        addToast('Usunięto pliki', 'info');
+                    }
+                },
+                isDanger: true,
+                divider: true
+            }
+        ];
+        return actions;
+    };
 
     return (
-        <div className="bg-slate-50 dark:bg-slate-900 min-h-screen font-sans text-slate-800 dark:text-slate-200">
-            <main className="container mx-auto px-4 py-8">
-                <header className="flex justify-between items-center mb-4">
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Lumbago Music AI</h1>
-                    <div className="flex items-center space-x-2">
-                         <ThemeToggle theme={theme} setTheme={setTheme} />
-                         <button onClick={() => setModalState({ type: 'settings' })} className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="Ustawienia">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                         </button>
-                    </div>
-                </header>
-                
-                <MainToolbar onTabChange={setActiveTab} />
-                <TabbedInterface tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
-                
-                <Footer />
-            </main>
+        <div className="flex h-screen bg-slate-50 dark:bg-slate-950 font-sans overflow-hidden">
             
-            {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveSettings} currentKeys={apiKeys} currentProvider={aiProvider} />}
-            {modalState.type === 'edit' && modalFile && <EditTagsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => handleSaveTags(modalFile.id, tags)} onApply={(tags) => handleApplyTags(modalFile.id, tags)} isApplying={savingFileId === modalFile.id} isDirectAccessMode={!!directoryHandle} file={modalFile} onManualSearch={handleManualSearch} onZoomCover={(imageUrl) => setModalState({ type: 'zoom-cover', imageUrl })} />}
-            {modalState.type === 'rename' && <RenameModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleSaveRenamePattern} currentPattern={renamePattern} files={filesForRenamePreview} />}
-            {modalState.type === 'delete' && <ConfirmationModal isOpen={true} onCancel={() => setModalState({ type: 'none' })} onConfirm={() => handleDelete(modalState.fileId)} title="Potwierdź usunięcie">{`Czy na pewno chcesz usunąć ${modalState.fileId === 'all' ? 'wszystkie pliki' : modalState.fileId === 'selected' ? `${selectedFiles.length} zaznaczone pliki` : 'ten plik'} z kolejki?`}</ConfirmationModal>}
-            {modalState.type === 'batch-edit' && <BatchEditModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={handleBatchEditSave} files={selectedFiles} />}
-            {modalState.type === 'post-download' && <PostDownloadModal isOpen={true} onKeep={() => setModalState({ type: 'none' })} onRemove={handlePostDownloadRemove} count={modalState.count} />}
-            {modalState.type === 'zoom-cover' && <AlbumCoverModal isOpen={true} onClose={() => setModalState({ type: 'none' })} imageUrl={modalState.imageUrl} />}
-            {modalState.type === 'preview-changes' && <PreviewChangesModal isOpen={true} onCancel={() => setModalState({ type: 'none' })} onConfirm={modalState.onConfirm} title={modalState.title} previews={modalState.previews}>{modalState.confirmationText}</PreviewChangesModal>}
+            <Sidebar 
+                totalFiles={files.length} 
+                playlists={playlists}
+                activePlaylistId={filters.playlistId || null}
+                onPlaylistSelect={(id) => setFilters(prev => ({ ...prev, playlistId: id }))}
+                onCreatePlaylist={handleCreatePlaylist}
+                onDeletePlaylist={(id) => {
+                    if (confirm('Usunąć playlistę?')) {
+                        deletePlaylist(id);
+                        addToast('Usunięto playlistę', 'info');
+                    }
+                }}
+                onShowRecentlyAdded={handleShowRecentlyAdded}
+                onShowDuplicates={handleFindDuplicates}
+                onShowXmlConverter={() => setModalState({ type: 'xml-converter' })}
+                onShowReports={() => addToast('Raporty AI dostępne wkrótce (Faza 2)', 'info')}
+            />
+
+            <div className="flex-grow flex flex-col min-w-0">
+                
+                <LibraryToolbar 
+                    onImport={() => setModalState({ type: 'import' })}
+                    onSettings={() => setModalState({ type: 'settings' })}
+                    onAnalyzeAll={() => analyzeBatch(files.filter(f => f.state !== ProcessingState.SUCCESS || !f.fetchedTags?.bpm || !f.fetchedTags?.genre))}
+                    onAnalyzeSelected={() => analyzeBatch(selectedFiles, false)}
+                    onForceAnalyzeSelected={() => analyzeBatch(selectedFiles, true)}
+                    onEdit={() => setModalState({ type: 'batch-edit' })}
+                    onExport={() => handleDownloadOrSave()}
+                    onDelete={() => {
+                        if(confirm('Usunąć zaznaczone pliki?')) {
+                            removeFiles(selectedFileIds);
+                            addToast('Usunięto pliki', 'info');
+                        }
+                    }}
+                    onClearAll={() => {
+                        if(confirm('Wyczyścić bibliotekę?')) {
+                            setFiles([]);
+                            addToast('Wyczyszczono bibliotekę', 'success');
+                        }
+                    }}
+                    onRename={() => setModalState({ type: 'rename' })}
+                    onFindDuplicates={handleFindDuplicates}
+                    onExportCsv={handleExportCsv}
+                    onConvertXml={() => setModalState({ type: 'xml-converter' })}
+                    
+                    selectedCount={selectedFileIds.length}
+                    totalCount={files.length}
+                    allSelected={files.length > 0 && selectedFileIds.length === files.length}
+                    onToggleSelectAll={() => selectedFileIds.length === files.length ? clearSelection() : selectAll()}
+                    
+                    theme={theme}
+                    setTheme={setTheme}
+                    isProcessing={isBatchAnalyzing || isSaving}
+                    isDirectAccessMode={!!directoryHandle}
+                    directoryName={directoryHandle?.name}
+                    isRestored={isRestored}
+
+                    searchQuery={filters.search}
+                    onSearchChange={(q) => setFilters(prev => ({ ...prev, search: q }))}
+                    viewMode={viewMode}
+                    onViewModeChange={setViewMode}
+                    showFilters={showFilters}
+                    onToggleFilters={() => setShowFilters(!showFilters)}
+                />
+
+                {showFilters && (
+                    <FilterBar 
+                        filters={filters}
+                        onFilterChange={setFilters}
+                        onClearFilters={() => setFilters({ search: filters.search })}
+                        availableGenres={availableGenres}
+                    />
+                )}
+
+                {files.length === 0 ? (
+                    <div className="flex-grow overflow-y-auto p-8 flex flex-col items-center justify-center">
+                        <WelcomeScreen onDirectoryConnect={handleDirectoryConnect}>
+                             <FileDropzone onFilesSelected={handleFilesSelected} onUrlSubmitted={handleUrlSubmitted} isProcessing={false} />
+                        </WelcomeScreen>
+                    </div>
+                ) : (
+                    <>
+                        {viewMode === 'list' ? (
+                            <TrackTable 
+                                files={paginatedFiles}
+                                selectedFileIds={selectedFileIds}
+                                activeFileId={activeFileId}
+                                onSelect={toggleSelection}
+                                onSelectAll={selectAll}
+                                onActivate={activateFile}
+                                sortConfig={sortConfig}
+                                onSort={setSortConfig}
+                                onContextMenu={handleContextMenu}
+                                currentPage={currentPage}
+                                totalPages={totalPages}
+                                onPageChange={setCurrentPage}
+                                itemsPerPage={itemsPerPage}
+                                onItemsPerPageChange={setItemsPerPage}
+                            />
+                        ) : (
+                            <TrackGrid 
+                                files={paginatedFiles}
+                                selectedFileIds={selectedFileIds}
+                                activeFileId={activeFileId}
+                                onSelect={toggleSelection}
+                                onActivate={activateFile}
+                            />
+                        )}
+                    </>
+                )}
+
+                <PlayerDock activeFile={activeFile} onUpdateFile={updateFile} />
+            </div>
+
+            <RightPanel 
+                file={activeFile} 
+                allFiles={files}
+                onClose={() => activateFile(null as any)} 
+                onRenamePatternSettings={() => setModalState({ type: 'rename' })}
+                onActivateFile={activateFile}
+            />
+
+            {contextMenu && (
+                <ContextMenu 
+                    x={contextMenu.x}
+                    y={contextMenu.y}
+                    actions={getContextMenuActions()}
+                    onClose={() => setContextMenu(null)}
+                />
+            )}
+
+            <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+            {/* Modals - Wrapped with backdrop-blur through classes inside components */}
+            {modalState.type === 'import' && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-10 animate-fade-in" onClick={() => setModalState({ type: 'none' })}>
+                    <div className="glass-panel rounded-xl p-8 max-w-4xl w-full" onClick={e => e.stopPropagation()}>
+                        <h2 className="text-2xl font-bold dark:text-white mb-6">Importuj utwory</h2>
+                        <FileDropzone onFilesSelected={(f) => { handleFilesSelected(f); setModalState({ type: 'none' }); }} onUrlSubmitted={handleUrlSubmitted} isProcessing={false} />
+                        <div className="mt-4 text-center">
+                             <button onClick={() => setModalState({ type: 'none' })} className="text-slate-500 hover:text-white transition-colors">Anuluj</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(k, p) => { setApiKeys(k); setAiProvider(p); setModalState({type: 'none'}); addToast('Zapisano ustawienia', 'success'); }} currentKeys={apiKeys} currentProvider={aiProvider} />}
+            {modalState.type === 'batch-edit' && <BatchEditModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => { 
+                const ids = selectedFileIds;
+                ids.forEach(id => updateFile(id, { fetchedTags: { ...(files.find(f => f.id === id)?.fetchedTags || {}), ...tags } }));
+                setModalState({ type: 'none' });
+                addToast('Zaktualizowano tagi', 'success');
+            }} files={selectedFiles} />}
+            {modalState.type === 'preview-changes' && <PreviewChangesModal isOpen={true} {...modalState} onCancel={() => setModalState({type:'none'})} >{modalState.confirmationText}</PreviewChangesModal>}
+            {modalState.type === 'post-download' && <PostDownloadModal isOpen={true} onRemove={() => { removeFiles(selectedFileIds); setModalState({type:'none'}); addToast('Wyczyszczono kolejkę', 'info'); }} onKeep={() => setModalState({type:'none'})} count={modalState.count} />}
+            {modalState.type === 'rename' && <RenameModal isOpen={true} onClose={() => setModalState({type: 'none'})} onSave={(pattern) => { setRenamePattern(pattern); setModalState({type: 'none'}); addToast('Zapisano wzorzec nazw', 'success'); }} currentPattern={renamePattern} files={files} />}
+            
+            {modalState.type === 'duplicates' && (
+                <DuplicateResolverModal 
+                    isOpen={true}
+                    onClose={() => setModalState({ type: 'none' })}
+                    duplicateSets={modalState.sets}
+                    onRemoveFiles={(idsToRemove) => {
+                        removeFiles(idsToRemove);
+                        setModalState({ type: 'none' });
+                        addToast(`Rozwiązano duplikaty (usunięto ${idsToRemove.length})`, 'success');
+                    }}
+                />
+            )}
+
+            {modalState.type === 'xml-converter' && (
+                <XmlConverterModal 
+                    isOpen={true}
+                    onClose={() => setModalState({ type: 'none' })}
+                />
+            )}
         </div>
     );
 };

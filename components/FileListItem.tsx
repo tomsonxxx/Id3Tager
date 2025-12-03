@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { AudioFile, ProcessingState } from '../types';
 import { StatusIcon } from './StatusIcon';
@@ -13,17 +14,13 @@ interface FileListItemProps {
   onSelectionChange: (fileId: string, isSelected: boolean) => void;
 }
 
-const usePrevious = <T,>(value: T): T | undefined => {
-    // FIX: Explicitly pass `undefined` to `useRef`. The parameter-less overload `useRef()`
-    // can sometimes cause "Expected 1 arguments, but got 0" errors with certain
-    // TypeScript configurations or linter rules.
+function usePrevious<T>(value: T): T | undefined {
     const ref = useRef<T | undefined>(undefined);
     useEffect(() => {
         ref.current = value;
     });
     return ref.current;
-};
-
+}
 
 const FileListItem: React.FC<FileListItemProps> = ({
   file,
@@ -44,6 +41,13 @@ const FileListItem: React.FC<FileListItemProps> = ({
   const displayName = file.newName || file.file.name;
   const hasNewName = !!file.newName && file.newName !== file.file.name;
   const supportsTagWriting = isTagWritingSupported(file.file);
+  
+  // Confidence Indicator Logic
+  const confidence = file.fetchedTags?.confidence;
+  let confidenceColor = 'bg-slate-300'; // none
+  if (confidence === 'high') confidenceColor = 'bg-green-500';
+  if (confidence === 'medium') confidenceColor = 'bg-yellow-500';
+  if (confidence === 'low') confidenceColor = 'bg-red-500';
 
   useEffect(() => {
     const element = itemRef.current;
@@ -65,32 +69,15 @@ const FileListItem: React.FC<FileListItemProps> = ({
   
   const handleDelete = () => {
     setIsExiting(true);
-    // Wait for animation to finish before calling the actual delete function
     setTimeout(() => {
         onDelete(file.id);
-    }, 300); // Must match the duration of fade-out animation
+    }, 300);
   };
 
-  // Określenie tła i ramki w zależności od stanu przetwarzania i zaznaczenia
-  let bgClass = "bg-white dark:bg-slate-800";
-  let borderClass = "border-transparent dark:border-slate-700";
-
-  if (isProcessing) {
-    // Animowany gradient dla aktywnego przetwarzania
-    bgClass = "bg-gradient-to-r from-slate-50 via-indigo-50 to-slate-50 dark:from-slate-800 dark:via-indigo-900/20 dark:to-slate-800 animate-gradient-loading";
-    borderClass = "border-indigo-200 dark:border-indigo-900"; // Subtelna ramka podczas przetwarzania
-  }
-
-  if (file.isSelected) {
-    borderClass = 'border-indigo-500 ring-2 ring-indigo-500/50';
-    // Jeśli zaznaczony, ale nie przetwarzany, zostawiamy standardowe tło (ew. można by dodać lekki tint)
-  }
-
   const itemClasses = [
-      "flex items-center p-3 rounded-lg shadow-sm transition-all duration-300 border",
-      bgClass,
-      borderClass,
-      file.state === ProcessingState.SUCCESS ? 'opacity-70' : '',
+      "flex items-center p-3 bg-white dark:bg-slate-800 rounded-lg shadow-sm transition-all duration-300 border",
+      file.isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/50' : 'border-transparent dark:border-slate-700',
+      file.duplicateSetId ? 'bg-amber-50 dark:bg-amber-900/20' : '',
       isExiting ? 'animate-fade-out' : 'animate-fade-in'
   ].join(' ');
 
@@ -106,17 +93,31 @@ const FileListItem: React.FC<FileListItemProps> = ({
       <div className="relative group">
         <AlbumCover tags={displayTags} />
         {hasFetchedTags && <TagPreviewTooltip originalTags={file.originalTags} fetchedTags={file.fetchedTags} />}
+        
+        {/* Confidence Badge */}
+        {hasFetchedTags && confidence && (
+            <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border border-white ${confidenceColor}`} title={`AI Confidence: ${confidence}`} />
+        )}
       </div>
       <div className="flex-grow ml-4 overflow-hidden">
-        <p className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate" title={displayName}>
-            {displayName}
-        </p>
+        <div className="flex items-center gap-2">
+            {file.duplicateSetId && (
+                <div className="flex-shrink-0" title="Potencjalny duplikat">
+                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
+                        Dup
+                     </span>
+                </div>
+            )}
+            <p className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate" title={displayName}>
+                {displayName}
+            </p>
+        </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={file.file.name}>
           {hasNewName ? `Oryginalnie: ${file.file.name}` : `Artysta: ${displayTags?.artist || 'Brak'}`}
         </p>
          {!supportsTagWriting && hasBeenProcessed && file.state !== ProcessingState.ERROR && (
-            <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 truncate" title="Zapis tagów nie jest obsługiwany dla tego formatu pliku. Plik zostanie tylko przemianowany.">
-                Tylko zmiana nazwy
+            <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 truncate">
+                Tylko zmiana nazwy (Format nieobsługiwany)
             </p>
         )}
         {file.state === ProcessingState.ERROR && (

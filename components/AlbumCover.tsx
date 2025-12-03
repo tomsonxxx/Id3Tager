@@ -1,4 +1,6 @@
+
 import React from 'react';
+// Fix: Correct import path
 import { ID3Tags } from '../types';
 import { proxyImageUrl } from '../utils/audioUtils';
 

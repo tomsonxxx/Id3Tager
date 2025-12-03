@@ -1,3 +1,5 @@
+
+// Fix: Provide full implementation for the TagPreviewTooltip component.
 import React from 'react';
 import { ID3Tags } from '../types';
 import AlbumCover from './AlbumCover';

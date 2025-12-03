@@ -1,6 +1,13 @@
+
+// Fix: Correct import path
 import { AudioFile, ProcessingState } from '../types';
 
-export type SortKey = 'dateAdded' | 'originalName' | 'newName' | 'state';
+export type SortKey = 'dateAdded' | 'originalName' | 'newName' | 'state' | 'title' | 'artist' | 'album' | 'bpm' | 'key' | 'genre' | 'year' | 'rating';
+
+export interface SortConfig {
+    key: SortKey;
+    direction: 'asc' | 'desc';
+}
 
 const stateOrder: Record<ProcessingState, number> = {
   [ProcessingState.PROCESSING]: 1,
@@ -10,33 +17,49 @@ const stateOrder: Record<ProcessingState, number> = {
   [ProcessingState.ERROR]: 5,
 };
 
+const getValue = (file: AudioFile, key: SortKey): string | number => {
+    const tags = file.fetchedTags || file.originalTags || {};
+    
+    switch (key) {
+        case 'dateAdded': return file.dateAdded;
+        case 'state': return stateOrder[file.state];
+        case 'originalName': return file.file.name.toLowerCase();
+        case 'newName': return (file.newName || file.file.name).toLowerCase();
+        case 'title': return (tags.title || file.file.name).toLowerCase();
+        case 'artist': return (tags.artist || '').toLowerCase();
+        case 'album': return (tags.album || '').toLowerCase();
+        case 'genre': return (tags.genre || '').toLowerCase();
+        case 'year': return tags.year || '';
+        case 'bpm': 
+             // Handle BPM as number or string parsing
+             const bpm = tags.bpm;
+             if (typeof bpm === 'number') return bpm;
+             if (typeof bpm === 'string') return parseFloat(bpm) || 0;
+             return 0;
+        case 'key': return (tags.initialKey || '').toLowerCase();
+        case 'rating': return tags.rating || 0;
+        default: return '';
+    }
+};
+
 export const sortFiles = (
   files: AudioFile[],
-  key: SortKey,
-  direction: 'asc' | 'desc'
+  sortConfig: SortConfig[]
 ): AudioFile[] => {
-  const sorted = files.sort((a, b) => {
-    let comparison = 0;
+  if (sortConfig.length === 0) return files;
 
-    switch (key) {
-      case 'dateAdded':
-        comparison = a.dateAdded - b.dateAdded;
-        break;
-      case 'originalName':
-        comparison = a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
-        break;
-      case 'newName':
-        const nameA = a.newName || a.file.name;
-        const nameB = b.newName || b.file.name;
-        comparison = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
-        break;
-      case 'state':
-        comparison = stateOrder[a.state] - stateOrder[b.state];
-        break;
+  return [...files].sort((a, b) => {
+    for (const { key, direction } of sortConfig) {
+        const valA = getValue(a, key);
+        const valB = getValue(b, key);
+
+        if (valA < valB) {
+            return direction === 'asc' ? -1 : 1;
+        }
+        if (valA > valB) {
+            return direction === 'asc' ? 1 : -1;
+        }
     }
-
-    return comparison;
+    return 0;
   });
-
-  return direction === 'asc' ? sorted : sorted.reverse();
 };

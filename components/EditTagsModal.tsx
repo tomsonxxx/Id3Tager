@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AudioFile, ID3Tags } from '../types';
 import AlbumCover from './AlbumCover';
+import { generateCoverArt } from '../services/aiService';
 
 interface EditTagsModalProps {
   isOpen: boolean;
@@ -30,12 +31,25 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
   const [manualQuery, setManualQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  
+  // Image Generation State
+  const [showGenPanel, setShowGenPanel] = useState(false);
+  const [genPrompt, setGenPrompt] = useState('');
+  const [genSize, setGenSize] = useState<'1K' | '2K'>('1K');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen && file) {
       setTags(file.fetchedTags || file.originalTags || {});
       setManualQuery(file.file.name);
       setSearchError(null);
+      
+      // Pre-fill generation prompt
+      const t = file.fetchedTags || file.originalTags;
+      if (t) {
+          setGenPrompt(`Album cover for ${t.genre || 'Electronic'} music track titled "${t.title || ''}" by ${t.artist || ''}. High quality, abstract, artistic.`);
+      }
     }
   }, [isOpen, file]);
 
@@ -56,8 +70,6 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
     setSearchError(null);
     try {
       await onManualSearch(manualQuery, file);
-      // After a successful search, the new tags will flow down via props,
-      // and the useEffect will update the local state.
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Wystąpił nieznany błąd wyszukiwania.");
     } finally {
@@ -65,7 +77,21 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
     }
   };
   
-  // This effect will trigger when the parent component updates the file with new tags after a search
+  const handleGenerateImage = async () => {
+      if (!genPrompt) return;
+      setIsGenerating(true);
+      setGenError(null);
+      try {
+          const imageUrl = await generateCoverArt(genPrompt, genSize);
+          setTags(prev => ({ ...prev, albumCoverUrl: imageUrl }));
+          setShowGenPanel(false);
+      } catch (error: any) {
+          setGenError(error.message);
+      } finally {
+          setIsGenerating(false);
+      }
+  };
+  
   useEffect(() => {
       if (file) {
           setTags(file.fetchedTags || file.originalTags || {});
@@ -136,14 +162,61 @@ const EditTagsModal: React.FC<EditTagsModalProps> = ({
         {/* Tags Form */}
         <div className="flex flex-col md:flex-row gap-6">
           <div className="md:w-1/4 flex flex-col items-center">
-            <div className="relative group cursor-pointer" onClick={() => tags.albumCoverUrl && onZoomCover(tags.albumCoverUrl)}>
-                <AlbumCover tags={tags} className="w-48 h-48" />
-                {tags.albumCoverUrl && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" /></svg>
+            {/* Cover Art Container */}
+            <div className="relative group cursor-pointer w-48 h-48" onClick={() => !showGenPanel && tags.albumCoverUrl && onZoomCover(tags.albumCoverUrl)}>
+                <AlbumCover tags={tags} className="w-full h-full" />
+                {!showGenPanel && (
+                    <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md space-y-2">
+                        {tags.albumCoverUrl && (
+                            <button className="text-white hover:text-indigo-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" /></svg>
+                            </button>
+                        )}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setShowGenPanel(true); }}
+                            className="px-3 py-1 bg-indigo-600 text-white text-xs font-bold rounded shadow hover:bg-indigo-500 flex items-center"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" /></svg>
+                            Generuj AI
+                        </button>
                     </div>
                 )}
             </div>
+
+            {/* AI Generation Panel Overlay */}
+            {showGenPanel && (
+                <div className="mt-2 w-full p-3 bg-indigo-50 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900 rounded-lg animate-fade-in relative">
+                    <button onClick={() => setShowGenPanel(false)} className="absolute top-1 right-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                    </button>
+                    <h4 className="text-xs font-bold text-indigo-800 dark:text-indigo-400 mb-2">Generuj Okładkę (Gemini Pro)</h4>
+                    <textarea 
+                        value={genPrompt}
+                        onChange={(e) => setGenPrompt(e.target.value)}
+                        className="w-full text-xs p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 mb-2 h-16"
+                        placeholder="Opisz okładkę..."
+                    />
+                    <div className="flex justify-between items-center mb-2">
+                        <select 
+                            value={genSize} 
+                            onChange={(e) => setGenSize(e.target.value as '1K' | '2K')}
+                            className="text-xs p-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                        >
+                            <option value="1K">1024x1024 (1K)</option>
+                            <option value="2K">2048x2048 (2K)</option>
+                        </select>
+                        <button 
+                            onClick={handleGenerateImage}
+                            disabled={isGenerating || !genPrompt}
+                            className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-500 disabled:opacity-50"
+                        >
+                            {isGenerating ? 'Generuję...' : 'Stwórz'}
+                        </button>
+                    </div>
+                    {genError && <p className="text-xs text-red-500">{genError}</p>}
+                </div>
+            )}
+
              <label htmlFor="albumCoverUrl" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mt-4 self-stretch">
                URL Okładki
              </label>
