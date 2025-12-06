@@ -10,11 +10,12 @@ import PostDownloadModal from './components/PostDownloadModal';
 import PreviewChangesModal from './components/PreviewChangesModal';
 import DuplicateResolverModal from './components/DuplicateResolverModal';
 import XmlConverterModal from './components/XmlConverterModal'; 
+import ReportsModal from './components/ReportsModal'; 
 import SmartPlaylistModal from './components/SmartPlaylistModal';
-import SmartTaggerModal from './components/SmartTaggerModal';
+import SmartTaggerModal from './components/SmartTaggerModal'; // Added import
 import ToastContainer, { Toast, ToastType } from './components/ToastContainer';
 
-// Library View Components
+// Library View
 import Sidebar from './components/Sidebar';
 import TrackTable from './components/TrackTable';
 import TrackGrid from './components/TrackGrid'; 
@@ -52,8 +53,9 @@ type ModalState =
   | { type: 'import' }
   | { type: 'duplicates'; sets: Map<string, AudioFile[]> }
   | { type: 'xml-converter' }
+  | { type: 'reports' }
   | { type: 'smart-playlist' }
-  | { type: 'smart-tagger'; fileId: string };
+  | { type: 'smart-tagger'; fileId: string }; // Added smart-tagger state
 
 async function* getFilesRecursively(entry: any, path = ''): AsyncGenerator<{ file: File, handle: any, path: string }> {
     if (entry.kind === 'file') {
@@ -290,7 +292,7 @@ const App: React.FC = () => {
         
         return [
             {
-                label: 'Smart Tag (Ten utwór)',
+                label: 'Smart Tag (Ten utwór)', // New option
                 icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>,
                 onClick: () => setModalState({ type: 'smart-tagger', fileId: contextMenu.targetId }),
                 disabled: isMultiSelect
@@ -333,22 +335,18 @@ const App: React.FC = () => {
 
     return (
         <div className="flex h-screen bg-slate-50 dark:bg-slate-950 font-sans overflow-hidden">
-            
             <Sidebar 
-                totalFiles={files.length} 
-                playlists={playlists}
-                activePlaylistId={filters.playlistId || null}
+                totalFiles={files.length} playlists={playlists} activePlaylistId={filters.playlistId || null}
                 onPlaylistSelect={(id) => setFilters(prev => ({ ...prev, playlistId: id }))}
-                onCreatePlaylist={handleCreatePlaylist}
-                onDeletePlaylist={(id) => { if (confirm('Usunąć playlistę?')) { deletePlaylist(id); addToast('Usunięto playlistę', 'info'); }}}
+                onCreatePlaylist={handleCreatePlaylist} onDeletePlaylist={deletePlaylist}
                 onShowRecentlyAdded={() => { setSortConfig([{ key: 'dateAdded', direction: 'desc' }]); setFilters(prev => ({ ...prev, playlistId: null })); addToast('Pokaż ostatnio dodane', 'info'); }}
                 onShowDuplicates={handleFindDuplicates}
                 onShowXmlConverter={() => setModalState({ type: 'xml-converter' })}
+                onShowReports={() => setModalState({ type: 'reports' })}
                 onSmartPlaylist={() => setModalState({ type: 'smart-playlist' })} 
             />
 
             <div className="flex-grow flex flex-col min-w-0">
-                
                 <LibraryToolbar 
                     onImport={() => setModalState({ type: 'import' })}
                     onSettings={() => setModalState({ type: 'settings' })}
@@ -364,83 +362,43 @@ const App: React.FC = () => {
                     onExportCsv={handleExportCsv}
                     onConvertXml={() => setModalState({ type: 'xml-converter' })}
                     
-                    selectedCount={selectedFileIds.length}
-                    totalCount={files.length}
-                    allSelected={files.length > 0 && selectedFileIds.length === files.length}
-                    onToggleSelectAll={() => selectedFileIds.length === files.length ? clearSelection() : selectAll()}
-                    
-                    theme={theme}
-                    setTheme={setTheme}
-                    isProcessing={isBatchAnalyzing || isSaving}
-                    isDirectAccessMode={!!directoryHandle}
-                    directoryName={directoryHandle?.name}
-                    isRestored={isRestored}
-
-                    searchQuery={filters.search}
-                    onSearchChange={(q) => setFilters(prev => ({ ...prev, search: q }))}
-                    viewMode={viewMode}
-                    onViewModeChange={setViewMode}
-                    showFilters={showFilters}
-                    onToggleFilters={() => setShowFilters(!showFilters)}
+                    selectedCount={selectedFileIds.length} totalCount={files.length} allSelected={files.length > 0 && selectedFileIds.length === files.length}
+                    onToggleSelectAll={selectedFileIds.length === files.length ? clearSelection : selectAll}
+                    theme={theme} setTheme={setTheme} isProcessing={isBatchAnalyzing || isSaving} isDirectAccessMode={!!directoryHandle}
+                    directoryName={directoryHandle?.name} isRestored={isRestored}
+                    searchQuery={filters.search} onSearchChange={(q) => setFilters(prev => ({ ...prev, search: q }))}
+                    viewMode={viewMode} onViewModeChange={setViewMode} showFilters={showFilters} onToggleFilters={() => setShowFilters(!showFilters)}
                 />
 
-                {showFilters && (
-                    <FilterBar 
-                        filters={filters}
-                        onFilterChange={setFilters}
-                        onClearFilters={() => setFilters({ search: filters.search })}
-                        availableGenres={availableGenres}
-                    />
-                )}
+                {showFilters && <FilterBar filters={filters} onFilterChange={setFilters} onClearFilters={() => setFilters({ search: filters.search })} availableGenres={availableGenres} />}
 
                 {files.length === 0 ? (
                     <div className="flex-grow overflow-y-auto p-8 flex flex-col items-center justify-center">
                         <WelcomeScreen onDirectoryConnect={handleDirectoryConnect}>
-                             <FileDropzone onFilesSelected={handleFilesSelected} onUrlSubmitted={handleUrlSubmitted} isProcessing={false} />
+                             <FileDropzone onFilesSelected={(f) => { handleFilesSelected(f); }} onUrlSubmitted={handleUrlSubmitted} isProcessing={false} />
                         </WelcomeScreen>
                     </div>
                 ) : (
                     <>
                         {viewMode === 'list' ? (
                             <TrackTable 
-                                files={paginatedFiles}
-                                selectedFileIds={selectedFileIds}
-                                activeFileId={activeFileId}
-                                onSelect={toggleSelection}
-                                onSelectAll={selectAll}
-                                onActivate={activateFile}
-                                sortConfig={sortConfig}
-                                onSort={setSortConfig}
+                                files={paginatedFiles} selectedFileIds={selectedFileIds} activeFileId={activeFileId}
+                                onSelect={toggleSelection} onSelectAll={selectAll} onActivate={activateFile}
+                                sortConfig={sortConfig} onSort={setSortConfig}
                                 onContextMenu={handleContextMenu}
-                                currentPage={currentPage}
-                                totalPages={totalPages}
-                                onPageChange={setCurrentPage}
-                                itemsPerPage={itemsPerPage}
-                                onItemsPerPageChange={setItemsPerPage}
+                                currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage}
+                                itemsPerPage={itemsPerPage} onItemsPerPageChange={setItemsPerPage}
                             />
                         ) : (
-                            <TrackGrid 
-                                files={paginatedFiles}
-                                selectedFileIds={selectedFileIds}
-                                activeFileId={activeFileId}
-                                onSelect={toggleSelection}
-                                onActivate={activateFile}
-                            />
+                            <TrackGrid files={paginatedFiles} selectedFileIds={selectedFileIds} activeFileId={activeFileId} onSelect={toggleSelection} onActivate={activateFile} />
                         )}
                     </>
                 )}
-
                 <PlayerDock activeFile={activeFile} onUpdateFile={updateFile} />
             </div>
 
-            <RightPanel 
-                file={activeFile} 
-                allFiles={files}
-                onClose={() => activateFile(null as any)} 
-                onRenamePatternSettings={() => setModalState({ type: 'rename' })}
-                onActivateFile={activateFile}
-            />
-
+            <RightPanel file={activeFile} allFiles={files} onClose={() => activateFile(null as any)} onRenamePatternSettings={() => setModalState({ type: 'rename' })} onActivateFile={activateFile} />
+            
             {contextMenu && (
                 <ContextMenu 
                     x={contextMenu.x}
@@ -452,41 +410,38 @@ const App: React.FC = () => {
 
             <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-            {/* Modals Container */}
-            {modalState.type !== 'none' && (
-                <>
-                    {modalState.type === 'import' && (
-                        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-10 animate-fade-in" onClick={() => setModalState({ type: 'none' })}>
-                            <div className="glass-panel rounded-xl p-8 max-w-4xl w-full" onClick={e => e.stopPropagation()}>
-                                <h2 className="text-2xl font-bold dark:text-white mb-6">Importuj utwory</h2>
-                                <FileDropzone onFilesSelected={(f) => { handleFilesSelected(f); setModalState({ type: 'none' }); }} onUrlSubmitted={handleUrlSubmitted} isProcessing={false} />
-                                <div className="mt-4 text-center">
-                                    <button onClick={() => setModalState({ type: 'none' })} className="text-slate-500 hover:text-white transition-colors">Anuluj</button>
-                                </div>
-                            </div>
+            {/* Modals */}
+            {modalState.type === 'import' && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-10 animate-fade-in" onClick={() => setModalState({ type: 'none' })}>
+                    <div className="glass-panel rounded-xl p-8 max-w-4xl w-full" onClick={e => e.stopPropagation()}>
+                        <h2 className="text-2xl font-bold dark:text-white mb-6">Importuj utwory</h2>
+                        <FileDropzone onFilesSelected={(f) => { handleFilesSelected(f); setModalState({ type: 'none' }); }} onUrlSubmitted={handleUrlSubmitted} isProcessing={false} />
+                        <div className="mt-4 text-center">
+                            <button onClick={() => setModalState({ type: 'none' })} className="text-slate-500 hover:text-white transition-colors">Anuluj</button>
                         </div>
-                    )}
-                    {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(k, p, as) => { setApiKeys(k); setAiProvider(p); setAnalysisSettings(as); setModalState({type: 'none'}); addToast('Zapisano ustawienia', 'success'); }} currentKeys={apiKeys} currentProvider={aiProvider} currentAnalysisSettings={analysisSettings} />}
-                    {modalState.type === 'batch-edit' && <BatchEditModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => { selectedFileIds.forEach(id => updateFile(id, { fetchedTags: { ...(files.find(f => f.id === id)?.fetchedTags || {}), ...tags } })); setModalState({ type: 'none' }); addToast('Zaktualizowano tagi', 'success'); }} files={selectedFiles} />}
-                    {modalState.type === 'preview-changes' && <PreviewChangesModal isOpen={true} {...modalState} onCancel={() => setModalState({type:'none'})} >{modalState.confirmationText}</PreviewChangesModal>}
-                    {modalState.type === 'post-download' && <PostDownloadModal isOpen={true} onRemove={() => { removeFiles(selectedFileIds); setModalState({type:'none'}); addToast('Wyczyszczono kolejkę', 'info'); }} onKeep={() => setModalState({type:'none'})} count={modalState.count} />}
-                    {modalState.type === 'rename' && <RenameModal isOpen={true} onClose={() => setModalState({type: 'none'})} onSave={(pattern) => { setRenamePattern(pattern); setModalState({type: 'none'}); addToast('Zapisano wzorzec nazw', 'success'); }} currentPattern={renamePattern} files={files} />}
-                    {modalState.type === 'duplicates' && <DuplicateResolverModal isOpen={true} onClose={() => setModalState({ type: 'none' })} duplicateSets={modalState.sets} onRemoveFiles={(ids) => { removeFiles(ids); setModalState({ type: 'none' }); addToast(`Rozwiązano duplikaty (${ids.length})`, 'success'); }} />}
-                    {modalState.type === 'xml-converter' && <XmlConverterModal isOpen={true} onClose={() => setModalState({ type: 'none' })} />}
-                    {modalState.type === 'smart-playlist' && <SmartPlaylistModal isOpen={true} onClose={() => setModalState({ type: 'none' })} files={files} onCreatePlaylist={(name, ids) => { createPlaylist(name, ids); setModalState({ type: 'none' }); addToast(`Utworzono playlistę AI: ${name}`, 'success'); }} />}
-                    {modalState.type === 'smart-tagger' && (
-                        <SmartTaggerModal 
-                            isOpen={true} 
-                            onClose={() => setModalState({ type: 'none' })}
-                            file={files.find(f => f.id === modalState.fileId)!}
-                            onApply={(tags) => { 
-                                updateFile(modalState.fileId, { fetchedTags: tags, state: ProcessingState.SUCCESS });
-                                setModalState({ type: 'none' });
-                                addToast('Zaktualizowano tagi (AI)', 'success');
-                            }} 
-                        />
-                    )}
-                </>
+                    </div>
+                </div>
+            )}
+            {modalState.type === 'settings' && <SettingsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(k, p, as) => { setApiKeys(k); setAiProvider(p); setAnalysisSettings(as); setModalState({type: 'none'}); addToast('Zapisano ustawienia', 'success'); }} currentKeys={apiKeys} currentProvider={aiProvider} currentAnalysisSettings={analysisSettings} />}
+            {modalState.type === 'batch-edit' && <BatchEditModal isOpen={true} onClose={() => setModalState({ type: 'none' })} onSave={(tags) => { selectedFileIds.forEach(id => updateFile(id, { fetchedTags: { ...(files.find(f => f.id === id)?.fetchedTags || {}), ...tags } })); setModalState({ type: 'none' }); addToast('Zaktualizowano tagi', 'success'); }} files={selectedFiles} />}
+            {modalState.type === 'preview-changes' && <PreviewChangesModal isOpen={true} {...modalState} onCancel={() => setModalState({type:'none'})} >{modalState.confirmationText}</PreviewChangesModal>}
+            {modalState.type === 'post-download' && <PostDownloadModal isOpen={true} onRemove={() => { removeFiles(selectedFileIds); setModalState({type:'none'}); addToast('Wyczyszczono kolejkę', 'info'); }} onKeep={() => setModalState({type:'none'})} count={modalState.count} />}
+            {modalState.type === 'rename' && <RenameModal isOpen={true} onClose={() => setModalState({type: 'none'})} onSave={(pattern) => { setRenamePattern(pattern); setModalState({type: 'none'}); addToast('Zapisano wzorzec nazw', 'success'); }} currentPattern={renamePattern} files={files} />}
+            {modalState.type === 'duplicates' && <DuplicateResolverModal isOpen={true} onClose={() => setModalState({ type: 'none' })} duplicateSets={modalState.sets} onRemoveFiles={(ids) => { removeFiles(ids); setModalState({ type: 'none' }); addToast(`Rozwiązano duplikaty (${ids.length})`, 'success'); }} />}
+            {modalState.type === 'xml-converter' && <XmlConverterModal isOpen={true} onClose={() => setModalState({ type: 'none' })} />}
+            {modalState.type === 'reports' && <ReportsModal isOpen={true} onClose={() => setModalState({ type: 'none' })} files={files} />}
+            {modalState.type === 'smart-playlist' && <SmartPlaylistModal isOpen={true} onClose={() => setModalState({ type: 'none' })} files={files} onCreatePlaylist={(name, ids) => { createPlaylist(name, ids); setModalState({ type: 'none' }); addToast(`Utworzono playlistę AI: ${name}`, 'success'); }} />}
+            {modalState.type === 'smart-tagger' && (
+                <SmartTaggerModal 
+                    isOpen={true} 
+                    onClose={() => setModalState({ type: 'none' })}
+                    file={files.find(f => f.id === modalState.fileId)!}
+                    onApply={(tags) => { 
+                        updateFile(modalState.fileId, { fetchedTags: tags, state: ProcessingState.SUCCESS });
+                        setModalState({ type: 'none' });
+                        addToast('Zaktualizowano tagi (AI)', 'success');
+                    }} 
+                />
             )}
         </div>
     );

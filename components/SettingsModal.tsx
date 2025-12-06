@@ -35,8 +35,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   
   // Analysis Settings State
   const [analysisMode, setAnalysisMode] = useState<'fast' | 'accurate' | 'creative'>('accurate');
-  const [analysisFields, setAnalysisFields] = useState(currentAnalysisSettings?.fields || {
-    bpm: true, key: true, genre: true, year: true, label: true, energy: true, danceability: true, mood: true, isrc: false
+  const [analysisFields, setAnalysisFields] = useState<AnalysisSettings['fields']>(currentAnalysisSettings?.fields || {
+    bpm: true, key: true, genre: true, year: true, label: true, energy: true, danceability: true, mood: true, isrc: false, album_artist: true, composer: false
   });
 
   useEffect(() => {
@@ -61,7 +61,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     });
   };
 
-  const toggleField = (key: keyof typeof analysisFields) => {
+  const toggleField = (key: keyof AnalysisSettings['fields']) => {
       setAnalysisFields(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
@@ -178,18 +178,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         { id: 'bpm', label: 'BPM (Tempo)' },
                         { id: 'key', label: 'Tonacja (Camelot)' },
                         { id: 'genre', label: 'Gatunek' },
+                        { id: 'year', label: 'Rok wydania' },
+                        { id: 'label', label: 'Wytwórnia (Label)' },
+                        { id: 'album_artist', label: 'Wykonawca Albumu' },
+                        { id: 'composer', label: 'Kompozytor' },
                         { id: 'energy', label: 'Energia (1-10)' },
                         { id: 'danceability', label: 'Taneczność' },
                         { id: 'mood', label: 'Nastrój' },
-                        { id: 'year', label: 'Rok wydania' },
-                        { id: 'label', label: 'Wytwórnia (Label)' },
                         { id: 'isrc', label: 'Kod ISRC' },
                     ].map(field => (
                         <label key={field.id} className="flex items-center space-x-3 p-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-colors">
                             <input
                                 type="checkbox"
-                                checked={(analysisFields as any)[field.id]}
-                                onChange={() => toggleField(field.id as any)}
+                                checked={analysisFields[field.id as keyof AnalysisSettings['fields']]}
+                                onChange={() => toggleField(field.id as keyof AnalysisSettings['fields'])}
                                 className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
                             />
                             <span className="text-sm text-slate-700 dark:text-slate-300">{field.label}</span>

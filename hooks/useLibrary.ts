@@ -201,12 +201,12 @@ export const useLibrary = (renamePattern: string) => {
 
   // --- Playlist Actions ---
   
-  const createPlaylist = useCallback((name: string) => {
+  const createPlaylist = useCallback((name: string, initialTrackIds: string[] = []) => {
       if (typeof uuid === 'undefined') return;
       const newPlaylist: Playlist = {
           id: uuid.v4(),
           name,
-          trackIds: [],
+          trackIds: initialTrackIds,
           createdAt: Date.now()
       };
       setPlaylists(prev => [...prev, newPlaylist]);

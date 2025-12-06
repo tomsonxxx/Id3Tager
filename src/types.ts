@@ -1,4 +1,3 @@
-
 export enum ProcessingState {
   PENDING = 'PENDING',
   PROCESSING = 'PROCESSING',

@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -34,6 +33,12 @@ html, body, #root { height: 100%; }
 
 @keyframes fade-in-up { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 .animate-fade-in-up { animation: fade-in-up 0.1s ease-out forwards; }
+
+@keyframes flash-success { 0% { background-color: rgba(34, 197, 94, 0.2); } 100% { background-color: transparent; } }
+.animate-flash-success { animation: flash-success 0.7s ease-out; }
+
+@keyframes flash-error { 0% { background-color: rgba(248, 113, 113, 0.2); } 100% { background-color: transparent; } }
+.animate-flash-error { animation: flash-error 0.7s ease-out; }
 
 .btn-spinner {
   display: inline-block; width: 1.25em; height: 1.25em;

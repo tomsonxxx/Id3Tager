@@ -13,7 +13,9 @@ const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
     energy: true,
     danceability: true,
     mood: true,
-    isrc: false
+    isrc: false,
+    album_artist: true,
+    composer: false
   },
   mode: 'accurate'
 };
